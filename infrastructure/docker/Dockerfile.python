@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/workspace:/workspace/packages:/workspace/apps/api
+
+WORKDIR /workspace
+
+# Upgrade pip (cached unless Python version changes)
+RUN pip install --no-cache-dir --upgrade pip
+
+# Copy only dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies
+RUN pip install --no-cache-dir ".[ml]"
+
+# Copy application code  
+COPY . .

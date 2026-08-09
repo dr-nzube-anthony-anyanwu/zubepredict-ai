@@ -1,0 +1,46 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+    command: uvicorn zubepredict_api.main:app --host 0.0.0.0 --port 8040 --reload
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8040:8040"
+    volumes:
+      - .:/workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.python
+    command: dramatiq apps.worker.tasks --processes 1 --threads 1
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:

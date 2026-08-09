@@ -1,0 +1,1 @@
+"""ZubePredict FastAPI service."""

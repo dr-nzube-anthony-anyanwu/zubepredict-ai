@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: zubepredict-api-demo
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/Dockerfile.python
+    dockerCommand: uvicorn zubepredict_api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: PYTHONPATH
+        value: /workspace:/workspace/packages:/workspace/apps/api
+      - key: APP_ENV
+        value: demonstration
+
