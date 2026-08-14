@@ -113,8 +113,12 @@ class SupabaseProjectRepository(_OwnedSupabaseRepository[ProjectRecord]):
     table_name = "projects"
     record_type = ProjectRecord
 
-    def create(self, *, name: str, description: str | None = None) -> ProjectRecord:
-        return self._insert({"name": name, "description": description})
+    def create(
+        self, *, name: str, description: str | None = None, source_channel: str = "api"
+    ) -> ProjectRecord:
+        return self._insert(
+            {"name": name, "description": description, "source_channel": source_channel}
+        )
 
     def get(self, project_id: UUID) -> ProjectRecord | None:
         return self._get(project_id)
@@ -145,6 +149,7 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
         file_format: str = "csv",
         retention_status: str = "active",
         retention_expires_at: datetime | None = None,
+        source_channel: str = "api",
     ) -> DatasetRecord:
         return self._insert(
             {
@@ -162,6 +167,7 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
                 "retention_expires_at": retention_expires_at.isoformat()
                 if retention_expires_at
                 else None,
+                "source_channel": source_channel,
                 "validated_at": datetime.now(UTC).isoformat(),
             }
         )
@@ -178,6 +184,20 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
             .limit(1)
         )
         response = self._execute(query, "read")
+        data = response.data or []
+        return self._record(data[0]) if data else None
+
+    def get_by_fingerprint(self, project_id: UUID, sha256: str) -> DatasetRecord | None:
+        query = (
+            self._client.table(self.table_name)
+            .select("*")
+            .eq("owner_id", str(self._owner_id))
+            .eq("project_id", str(project_id))
+            .eq("sha256", sha256)
+            .eq("retention_status", "active")
+            .limit(1)
+        )
+        response = self._execute(query, "read fingerprint from")
         data = response.data or []
         return self._record(data[0]) if data else None
 
@@ -206,6 +226,7 @@ class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
         objective: str | None = None,
         target_column: str | None = None,
         configuration: dict[str, Any] | None = None,
+        source_channel: str = "api",
     ) -> ExperimentRecord:
         return self._insert(
             {
@@ -214,6 +235,7 @@ class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
                 "objective": objective,
                 "target_column": target_column,
                 "configuration": configuration or {},
+                "source_channel": source_channel,
             }
         )
 
@@ -227,6 +249,7 @@ class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
         objective: str | None = None,
         target_column: str | None = None,
         configuration: dict[str, Any] | None = None,
+        source_channel: str = "api",
     ) -> ExperimentRecord:
         now = datetime.now(UTC).isoformat()
         return self._insert(
@@ -238,12 +261,87 @@ class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
                 "objective": objective,
                 "target_column": target_column,
                 "configuration": configuration or {},
+                "source_channel": source_channel,
                 "status": "queued",
                 "progress": 0,
                 "queued_at": now,
                 "heartbeat_at": now,
             }
         )
+
+    def approve_constitution(
+        self,
+        experiment_id: UUID,
+        *,
+        expected_version: int,
+        configuration: dict[str, Any],
+    ) -> ExperimentRecord:
+        """Approve an owned draft constitution with optimistic concurrency."""
+
+        current = self.get(experiment_id)
+        if current is None or current.status != "draft":
+            raise SupabaseRepositoryError("The draft experiment constitution was not found.")
+        query = (
+            self._client.table(self.table_name)
+            .update(
+                {
+                    "configuration": configuration,
+                    "decision_version": expected_version + 1,
+                    "decision_updated_at": datetime.now(UTC).isoformat(),
+                    "state_version": current.state_version + 1,
+                }
+            )
+            .eq("id", str(experiment_id))
+            .eq("owner_id", str(self._owner_id))
+            .eq("status", "draft")
+            .eq("decision_version", expected_version)
+            .eq("state_version", current.state_version)
+        )
+        response = self._execute(query, "approve constitution for")
+        data = response.data or []
+        if not data:
+            raise SupabaseRepositoryError("The constitution changed concurrently.")
+        return self._record(data[0])
+
+    def queue_constitution_job(
+        self,
+        experiment_id: UUID,
+        *,
+        job_id: UUID,
+        idempotency_key: str,
+    ) -> ExperimentRecord:
+        """Turn one approved draft into its one durable asynchronous job."""
+
+        current = self.get(experiment_id)
+        if current is None or current.status != "draft" or current.job_id is not None:
+            raise SupabaseRepositoryError("The approved constitution is not queueable.")
+        constitution = current.configuration.get("constitution")
+        if not isinstance(constitution, dict) or constitution.get("approval_status") != "approved":
+            raise SupabaseRepositoryError("The experiment constitution is not approved.")
+        now = datetime.now(UTC).isoformat()
+        query = (
+            self._client.table(self.table_name)
+            .update(
+                {
+                    "job_id": str(job_id),
+                    "idempotency_key": idempotency_key,
+                    "status": "queued",
+                    "progress": 0,
+                    "queued_at": now,
+                    "heartbeat_at": now,
+                    "state_version": current.state_version + 1,
+                }
+            )
+            .eq("id", str(experiment_id))
+            .eq("owner_id", str(self._owner_id))
+            .eq("status", "draft")
+            .eq("state_version", current.state_version)
+        )
+        response = self._execute(query, "queue constitution job for")
+        data = response.data or []
+        if not data:
+            raise SupabaseRepositoryError("The constitution was already queued or changed.")
+        return self._record(data[0])
 
     def get_by_idempotency_key(self, key: str) -> ExperimentRecord | None:
         query = (
@@ -515,12 +613,26 @@ class SupabaseReportRepository(_OwnedSupabaseRepository[ReportRecord]):
         experiment_id: UUID,
         report_type: str,
         storage_path: str,
+        report_version: int = 1,
+        filename: str | None = None,
+        content_type: str | None = None,
+        size_bytes: int | None = None,
+        sha256: str | None = None,
+        evidence_hash: str | None = None,
+        integrity_metadata: dict[str, Any] | None = None,
     ) -> ReportRecord:
         return self._insert(
             {
                 "experiment_id": str(experiment_id),
                 "report_type": report_type,
                 "storage_path": storage_path,
+                "report_version": report_version,
+                "filename": filename,
+                "content_type": content_type,
+                "size_bytes": size_bytes,
+                "sha256": sha256,
+                "evidence_hash": evidence_hash,
+                "integrity_metadata": integrity_metadata or {},
             }
         )
 

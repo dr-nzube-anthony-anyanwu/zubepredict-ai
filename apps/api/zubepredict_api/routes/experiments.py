@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from zubepredict_api.routes.hermes import ReportType, get_report_reference
+from zubepredict_api.security.hermes import TrustedHermesPrincipal
 from zubepredict_core.repositories.models import ExperimentRecord
 from zubepredict_core.repositories.supabase import (
     AuthenticatedSupabaseSession,
@@ -120,6 +122,7 @@ def create_job(
             objective=request.objective,
             target_column=request.target_column,
             configuration=request.configuration,
+            source_channel="web",
         )
     except SupabaseRepositoryError:
         concurrent = trusted.experiments.get_by_idempotency_key(key_hash)
@@ -153,6 +156,27 @@ def get_job(
     if experiment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "The experiment was not found.")
     return _response(experiment)
+
+
+@router.get("/{experiment_id}/reports/{report_type}")
+def get_authenticated_report(
+    experiment_id: UUID,
+    report_type: ReportType,
+    session: Annotated[AuthenticatedSupabaseSession, Depends(_session)],
+) -> dict[str, Any]:
+    """Return the same verified artifact reference used by web and Telegram."""
+
+    return dict(
+        get_report_reference(
+            experiment_id,
+            report_type,
+            TrustedHermesPrincipal(
+                owner_id=session.user_id,
+                key_id="authenticated-api",
+                channel="api",
+            ),
+        )
+    )
 
 
 @router.post(
@@ -197,8 +221,10 @@ def resume_job(
     if request.task_type in supervised_tasks:
         dataset = owned_repositories.datasets.get(owned.dataset_id)
         schema_columns = (dataset.profile or {}).get("schema_columns") if dataset else None
-        if not request.target_column or not isinstance(schema_columns, list) or (
-            request.target_column not in schema_columns
+        if (
+            not request.target_column
+            or not isinstance(schema_columns, list)
+            or (request.target_column not in schema_columns)
         ):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,

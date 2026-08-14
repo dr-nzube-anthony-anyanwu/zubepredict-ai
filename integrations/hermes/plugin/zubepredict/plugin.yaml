@@ -1,0 +1,48 @@
+manifest_version: 1
+name: zubepredict
+version: 0.4.0
+description: "Signed, least-privilege tools for the ZubePredict AI FastAPI boundary."
+author: ZubePredict AI
+kind: standalone
+provides_tools:
+  - zubepredict_health
+  - zubepredict_list_projects
+  - zubepredict_create_project
+  - zubepredict_upload_dataset
+  - zubepredict_channel_state
+  - zubepredict_reset_channel_state
+  - zubepredict_link_telegram_account
+  - zubepredict_profile_dataset
+  - zubepredict_assess_readiness
+  - zubepredict_create_constitution
+  - zubepredict_confirm_constitution
+  - zubepredict_start_experiment
+  - zubepredict_experiment_status
+  - zubepredict_answer_clarification
+  - zubepredict_cancel_experiment
+  - zubepredict_get_evidence
+  - zubepredict_get_report
+hooks:
+  - pre_gateway_dispatch
+  - pre_llm_call
+  - post_tool_call
+  - transform_llm_output
+requires_env:
+  - name: ZUBEPREDICT_HERMES_KEY_ID
+    description: "Identifier for the rotated service credential."
+  - name: ZUBEPREDICT_HERMES_SERVICE_KEY
+    description: "HMAC service credential; keep only in the local Hermes environment."
+    secret: true
+  - name: ZUBEPREDICT_HERMES_PRINCIPAL_ID
+    description: "Trusted local Supabase user UUID, supplied outside model-controlled arguments."
+  - name: ZUBEPREDICT_TELEGRAM_OWNER_ID
+    description: "Owner's numerical Telegram user ID; never a username."
+optional_env:
+  - name: ZUBEPREDICT_API_BASE_URL
+    description: "FastAPI base URL; defaults to http://127.0.0.1:8040/api/v1."
+  - name: ZUBEPREDICT_HERMES_TIMEOUT_SECONDS
+    description: "Bounded API timeout; defaults to 15 seconds."
+  - name: ZUBEPREDICT_TELEGRAM_ATTACHMENT_ROOT
+    description: "Exact Hermes document-cache root accepted by the restricted upload tool."
+  - name: ZUBEPREDICT_TELEGRAM_MAX_UPLOAD_MB
+    description: "Pre-transfer file limit; must match the backend MAX_UPLOAD_MB."

@@ -17,8 +17,8 @@ Each stage has an exit gate. Codex must not continue if that gate fails.
 | 10 | Optuna tuning and resource budgets | Trials obey time and count limits |
 | 11 | Explainability and error analysis | Outputs match supported model types |
 | 12 | LangGraph orchestration | Pause/resume/clarify routes pass |
-| 13 | Nous Hermes provider and grounded summaries | LLM cannot alter verified metrics |
-| 14 | Telegram workflow | User ownership and cancellation pass |
+| 13 | Nous Hermes provider and grounded summaries | Complete: LLM cannot alter verified metrics |
+| 14 | Hermes Telegram workflow | Implemented; mocked ownership/cancellation pass, real owner smoke pending |
 | 15 | Full Next.js dashboard | End-to-end experiment works |
 | 16 | HTML/PDF/model-card reporting | Artifacts reproduce stored results |
 | 17 | Security, quotas and retention | Abuse and cross-user tests pass |
@@ -38,4 +38,3 @@ Each stage has an exit gate. Codex must not continue if that gate fails.
 10. Stop and request clarification when the target or objective is ambiguous.
 11. Keep datasets private and scoped to their owner.
 12. Record seeds, software versions, parameters and dataset fingerprints.
-

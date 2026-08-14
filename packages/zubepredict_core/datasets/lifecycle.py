@@ -26,6 +26,7 @@ from zubepredict_core.repositories.supabase import (
     SupabaseRepositorySet,
     create_authenticated_session,
     create_service_repositories,
+    create_service_session,
 )
 from zubepredict_core.shared.config import Settings
 
@@ -52,12 +53,21 @@ class FinalizedDataset:
     inspection: DatasetInspection
 
 
+@dataclass(frozen=True)
+class IngestedDataset:
+    dataset: DatasetRecord
+    inspection: DatasetInspection | None
+    duplicate: bool
+
+
 class DatasetObjectStorage(Protocol):
     def create_upload_url(self, path: str) -> tuple[str, str]: ...
 
     def download_to(self, path: str, destination: BinaryIO, max_bytes: int) -> StreamedFile: ...
 
     def delete(self, path: str) -> None: ...
+
+    def upload(self, path: str, content: bytes, content_type: str) -> None: ...
 
 
 class SupabaseDatasetObjectStorage:
@@ -99,6 +109,13 @@ class SupabaseDatasetObjectStorage:
     def delete(self, path: str) -> None:
         self._bucket.remove([path])
 
+    def upload(self, path: str, content: bytes, content_type: str) -> None:
+        self._bucket.upload(
+            path,
+            content,
+            {"content-type": content_type, "upsert": "false"},
+        )
+
 
 class DatasetLifecycleService:
     def __init__(
@@ -119,6 +136,101 @@ class DatasetLifecycleService:
         repositories = SupabaseRepositorySet.from_session(session)
         storage = SupabaseDatasetObjectStorage(session, settings.supabase_datasets_bucket)
         return cls(settings, session, repositories, storage)
+
+    @classmethod
+    def from_service_principal(cls, settings: Settings, owner_id: UUID) -> DatasetLifecycleService:
+        session = create_service_session(settings, owner_id)
+        repositories = SupabaseRepositorySet.from_session(session)
+        storage = SupabaseDatasetObjectStorage(session, settings.supabase_datasets_bucket)
+        return cls(settings, session, repositories, storage)
+
+    def ingest_chunks(
+        self,
+        *,
+        project_id: UUID,
+        filename: str,
+        content_type: str,
+        chunks: Iterable[bytes],
+        source_channel: str = "api",
+    ) -> IngestedDataset:
+        project = self._repositories.projects.get(project_id)
+        if project is None:
+            raise DatasetLifecycleError("The project was not found or is not owned by this user.")
+        metadata = validate_upload_metadata(filename, content_type)
+        temporary_path: Path | None = None
+        storage_path: str | None = None
+        uploaded = False
+        try:
+            with NamedTemporaryFile(suffix=metadata.suffix, delete=False) as temporary:
+                temporary_path = Path(temporary.name)
+                streamed = stream_to_file(
+                    chunks,
+                    cast(BinaryIO, temporary),
+                    self._settings.max_upload_mb * 1024 * 1024,
+                )
+            validate_file_signature(
+                temporary_path,
+                metadata.file_format,
+                max_uncompressed_bytes=self._settings.max_upload_mb * 1024 * 1024 * 20,
+            )
+            inspection = inspect_dataset(
+                temporary_path,
+                metadata.file_format,
+                max_rows=self._settings.max_rows,
+                max_columns=self._settings.max_columns,
+                preview_rows=self._settings.dataset_preview_rows,
+                preview_columns=self._settings.dataset_preview_columns,
+            )
+            duplicate = self._repositories.datasets.get_by_fingerprint(project_id, streamed.sha256)
+            if duplicate is not None:
+                self._repositories.audit_logs.record(
+                    action="dataset.duplicate_detected",
+                    resource_type="dataset",
+                    resource_id=duplicate.id,
+                    metadata={"project_id": str(project_id), "sha256": streamed.sha256},
+                )
+                return IngestedDataset(dataset=duplicate, inspection=None, duplicate=True)
+
+            storage_path = f"{self._session.user_id}/{uuid4()}{metadata.suffix}"
+            self._storage.upload(storage_path, temporary_path.read_bytes(), metadata.media_type)
+            uploaded = True
+            expires_at = datetime.now(UTC) + timedelta(days=self._settings.dataset_retention_days)
+            dataset = self._repositories.datasets.register(
+                project_id=project_id,
+                original_filename=metadata.original_filename,
+                storage_path=storage_path,
+                sha256=streamed.sha256,
+                size_bytes=streamed.size_bytes,
+                row_count=inspection.row_count,
+                column_count=inspection.column_count,
+                profile={
+                    "schema_columns": inspection.column_names,
+                    "preview": asdict(inspection.preview),
+                },
+                media_type=metadata.media_type,
+                file_format=metadata.file_format.value,
+                retention_status="active",
+                retention_expires_at=expires_at,
+                source_channel=source_channel,
+            )
+            self._repositories.audit_logs.record(
+                action="dataset.telegram_uploaded",
+                resource_type="dataset",
+                resource_id=dataset.id,
+                metadata={
+                    "project_id": str(project_id),
+                    "sha256": streamed.sha256,
+                    "size_bytes": streamed.size_bytes,
+                },
+            )
+            return IngestedDataset(dataset=dataset, inspection=inspection, duplicate=False)
+        except Exception:
+            if uploaded and storage_path is not None:
+                self._storage.delete(storage_path)
+            raise
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def prepare_upload(
         self,
@@ -199,6 +311,7 @@ class DatasetLifecycleService:
                 file_format=metadata.file_format.value,
                 retention_status="active",
                 retention_expires_at=expires_at,
+                source_channel="web",
             )
             return FinalizedDataset(dataset=dataset, inspection=inspection)
         except Exception:

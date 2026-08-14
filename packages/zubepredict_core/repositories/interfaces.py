@@ -13,7 +13,9 @@ from zubepredict_core.repositories.models import (
 
 
 class ProjectRepository(Protocol):
-    def create(self, *, name: str, description: str | None = None) -> ProjectRecord: ...
+    def create(
+        self, *, name: str, description: str | None = None, source_channel: str = "api"
+    ) -> ProjectRecord: ...
 
     def get(self, project_id: UUID) -> ProjectRecord | None: ...
 
@@ -38,11 +40,14 @@ class DatasetRepository(Protocol):
         file_format: str = "csv",
         retention_status: str = "active",
         retention_expires_at: datetime | None = None,
+        source_channel: str = "api",
     ) -> DatasetRecord: ...
 
     def get(self, dataset_id: UUID) -> DatasetRecord | None: ...
 
     def get_by_storage_path(self, storage_path: str) -> DatasetRecord | None: ...
+
+    def get_by_fingerprint(self, project_id: UUID, sha256: str) -> DatasetRecord | None: ...
 
     def list_for_project(self, project_id: UUID) -> list[DatasetRecord]: ...
 
@@ -60,6 +65,7 @@ class ExperimentRepository(Protocol):
         objective: str | None = None,
         target_column: str | None = None,
         configuration: dict[str, Any] | None = None,
+        source_channel: str = "api",
     ) -> ExperimentRecord: ...
 
     def get(self, experiment_id: UUID) -> ExperimentRecord | None: ...
@@ -118,6 +124,13 @@ class ReportWriterRepository(ReportRepository, Protocol):
         experiment_id: UUID,
         report_type: str,
         storage_path: str,
+        report_version: int = 1,
+        filename: str | None = None,
+        content_type: str | None = None,
+        size_bytes: int | None = None,
+        sha256: str | None = None,
+        evidence_hash: str | None = None,
+        integrity_metadata: dict[str, Any] | None = None,
     ) -> ReportRecord: ...
 
 

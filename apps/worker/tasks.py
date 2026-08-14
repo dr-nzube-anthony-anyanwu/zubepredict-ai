@@ -17,11 +17,13 @@ from zubepredict_core.data_engine.loader import load_dataframe, validate_dimensi
 from zubepredict_core.data_engine.task_detector import detect_task
 from zubepredict_core.datasets.files import DatasetFileFormat, validate_file_signature
 from zubepredict_core.datasets.lifecycle import SupabaseDatasetObjectStorage
+from zubepredict_core.evidence import build_evidence_envelope
 from zubepredict_core.ml_engine.forecasting import (
     ForecastClarificationRequired,
     prepare_forecast_contract,
 )
 from zubepredict_core.ml_engine.tournament import TournamentCancelled
+from zubepredict_core.reporting import generate_report_bundle
 from zubepredict_core.repositories.models import ExperimentRecord
 from zubepredict_core.repositories.supabase import (
     SupabaseExperimentRepository,
@@ -294,9 +296,7 @@ class _WorkerWorkflowContext:
         dataset = self.repositories.datasets.get(self.claimed.dataset_id)
         if dataset is None or dataset.project_id != self.claimed.project_id:
             raise ValueError("The experiment's owned dataset is unavailable.")
-        storage = SupabaseDatasetObjectStorage(
-            self.session, settings.supabase_datasets_bucket
-        )
+        storage = SupabaseDatasetObjectStorage(self.session, settings.supabase_datasets_bucket)
         local_dataset = self.temporary_directory / f"dataset.{dataset.file_format}"
         with local_dataset.open("wb") as handle:
             streamed = storage.download_to(
@@ -490,8 +490,7 @@ class _WorkerWorkflowContext:
                 hyperparameters=score.hyperparameters,
                 metrics=metrics,
                 fold_scores=[
-                    fold.model_dump(mode="json")
-                    for fold in getattr(score, "fold_scores", [])
+                    fold.model_dump(mode="json") for fold in getattr(score, "fold_scores", [])
                 ],
                 fit_seconds=score.fit_seconds,
                 status=score.status,
@@ -499,6 +498,77 @@ class _WorkerWorkflowContext:
                 artifact_path=artifact_path if score.model_name == result.winner else None,
             )
         summary = _summary(result, artifact_path, evidence_path, evidence_sha256)
+        dataset = self.repositories.datasets.get(self.claimed.dataset_id)
+        if dataset is None:
+            raise ValueError("The experiment's owned dataset is unavailable for reporting.")
+        constitution_value = self.claimed.configuration.get("constitution", {})
+        constitution = constitution_value if isinstance(constitution_value, dict) else {}
+        envelope = build_evidence_envelope(
+            experiment_id=self.experiment_id,
+            dataset_fingerprint=dataset.sha256,
+            constitution_version=int(constitution.get("version", 1)),
+            result_summary=summary,
+            warnings=result.warnings,
+            constitution=constitution,
+            generated_at=self.claimed.created_at or self.claimed.queued_at or datetime.now(UTC),
+        )
+        reports = generate_report_bundle(envelope, result)
+        existing_reports = {
+            (item.report_type, item.report_version): item
+            for item in self.repositories.reports.list_for_experiment(self.experiment_id)
+        }
+        report_manifest: list[dict[str, Any]] = []
+        for generated_report in reports:
+            report_path = (
+                f"{base_path}/reports/v{generated_report.report_version}/"
+                f"{generated_report.filename}"
+            )
+            existing = existing_reports.get(
+                (generated_report.report_type, generated_report.report_version)
+            )
+            if existing is not None:
+                if (
+                    existing.evidence_hash != envelope.evidence_hash
+                    or existing.storage_path != report_path
+                ):
+                    raise ValueError("Stored report metadata conflicts with verified evidence.")
+                report = existing
+            else:
+                bucket.upload(
+                    report_path,
+                    generated_report.content,
+                    {
+                        "content-type": generated_report.content_type,
+                        "upsert": "false",
+                    },
+                )
+                report = self.repositories.reports.create(
+                    experiment_id=self.experiment_id,
+                    report_type=generated_report.report_type,
+                    storage_path=report_path,
+                    report_version=generated_report.report_version,
+                    filename=generated_report.filename,
+                    content_type=generated_report.content_type,
+                    size_bytes=len(generated_report.content),
+                    sha256=generated_report.sha256,
+                    evidence_hash=envelope.evidence_hash,
+                    integrity_metadata={
+                        "generator": "zubepredict_core.reporting",
+                        "source": "verified_evidence_envelope",
+                        "job_id": str(self.job_id),
+                    },
+                )
+            report_manifest.append(
+                {
+                    "report_id": str(report.id),
+                    "report_type": report.report_type,
+                    "report_version": report.report_version,
+                    "sha256": report.sha256,
+                    "evidence_hash": report.evidence_hash,
+                }
+            )
+        summary["evidence_hash"] = envelope.evidence_hash
+        summary["report_artifacts"] = report_manifest
         self.repositories.experiments.update_job(
             self.experiment_id,
             self.job_id,

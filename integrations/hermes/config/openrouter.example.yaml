@@ -1,0 +1,12 @@
+# Reference only: merge these ideas with Hermes' current config through `hermes model`.
+# Do not copy a stale model ID blindly. Choose a current OpenRouter model that supports
+# tool calling, structured JSON reliably, and at least a 64k context window.
+model:
+  provider: openrouter
+  default: "CHOOSE_A_CURRENT_TOOL_CAPABLE_MODEL_ID"
+
+plugins:
+  entries:
+    zubepredict:
+      enabled: true
+      allow_tool_override: false

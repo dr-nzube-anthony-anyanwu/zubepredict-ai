@@ -11,6 +11,12 @@ def test_health_endpoint() -> None:
     assert response.json()["status"] == "healthy"
 
 
+def test_versioned_health_alias() -> None:
+    response = client.get("/api/v1/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+
+
 def test_profile_rejects_unsupported_file_type() -> None:
     response = client.post(
         "/api/v1/analysis/profile",

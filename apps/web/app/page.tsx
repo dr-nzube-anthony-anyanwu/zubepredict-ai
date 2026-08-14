@@ -1,25 +1,7 @@
-const stages = [
-  "Understand the objective",
-  "Inspect data quality",
-  "Choose the ML task",
-  "Run a model tournament",
-  "Explain and report",
-];
+import Link from "next/link";
+
+const stages = ["Private data intake", "Readiness assessment", "Model tournament", "Evidence envelope"];
 
 export default function Home() {
-  return (
-    <main>
-      <nav><span className="mark">ZP</span><strong>ZubePredict AI</strong><span className="badge">Starter v0.1</span></nav>
-      <section className="hero">
-        <p className="eyebrow">AUTONOMOUS DATA SCIENCE, WITH EVIDENCE</p>
-        <h1>From raw dataset to a defensible model decision.</h1>
-        <p className="lead">ZubePredict profiles the data, identifies the task, compares appropriate models and explains what won—and why.</p>
-        <div className="actions"><a href="http://localhost:8040/docs">Open API workspace</a><span>Telegram and project dashboard arrive in later stages.</span></div>
-      </section>
-      <section className="grid">
-        {stages.map((stage, index) => <article key={stage}><small>0{index + 1}</small><h2>{stage}</h2></article>)}
-      </section>
-      <footer>Built as a stage-based foundation for ZubePredict AI.</footer>
-    </main>
-  );
+  return <main className="landing"><nav className="landing-nav"><Link className="brand" href="/"><span className="brand-mark">ZP</span><span>ZubePredict AI</span></Link><div><a href="#method">Method</a><Link className="button small primary" href="/dashboard">Open workspace</Link></div></nav><section className="landing-hero"><div><p className="eyebrow">AUTONOMOUS DATA SCIENCE, WITH EVIDENCE</p><h1>From raw data to a defensible model decision.</h1><p className="lead">Profile data, define the experiment, compare appropriate models, and carry verified evidence between the web and Telegram.</p><div className="hero-actions"><Link className="button primary" href="/dashboard">Enter your workspace →</Link><span>Private by default. Human confirmation required.</span></div></div><aside><div className="signal"><span>EXPERIMENT STATUS</span><b><i /> Completed</b></div><h3>Readmission risk · synthetic demo</h3><div className="score"><strong>0.87</strong><span>ROC AUC</span></div><div className="winner"><span>WINNING MODEL</span><strong>Logistic Regression</strong></div><small>Verified evidence hash attached</small></aside></section><section className="method" id="method">{stages.map((stage,index) => <article key={stage}><small>0{index+1}</small><h2>{stage}</h2><p>{["Signed upload, validation and fingerprinting.","Profiling, leakage gates and exact clarifications.","Durable background execution through LangGraph.","Metrics and reports traceable to stored results."][index]}</p></article>)}</section><footer className="landing-footer"><span>ZubePredict AI</span><span>Decision support and research unless independently validated.</span></footer></main>;
 }

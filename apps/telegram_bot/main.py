@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
@@ -37,9 +38,17 @@ async def document_placeholder(message: Message) -> None:
 
 
 async def main() -> None:
+    if os.getenv("ZUBEPREDICT_ENABLE_AIOGRAM_FALLBACK", "").strip().lower() != "true":
+        raise RuntimeError(
+            "The aiogram starter is a disabled fallback. Use the Hermes Agent Telegram gateway."
+        )
     if not settings.telegram_bot_token:
         raise RuntimeError("Add TELEGRAM_BOT_TOKEN to .env before starting the bot.")
     logging.basicConfig(level=logging.INFO)
+    logging.warning(
+        "Starting the disabled aiogram fallback by explicit override. "
+        "Stop every Hermes gateway using this bot token first."
+    )
     bot = Bot(settings.telegram_bot_token)
     await dispatcher.start_polling(bot)
 

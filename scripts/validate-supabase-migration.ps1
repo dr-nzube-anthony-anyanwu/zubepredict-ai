@@ -12,6 +12,12 @@ $stage7Migration = Join-Path $projectRoot `
   "infrastructure\supabase\supabase\migrations\20260809025738_async_experiment_jobs.sql"
 $stage12Migration = Join-Path $projectRoot `
   "infrastructure\supabase\supabase\migrations\20260809045626_langgraph_workflow_checkpoints.sql"
+$stage14Migration = Join-Path $projectRoot `
+  "infrastructure\supabase\supabase\migrations\20260812132803_stage14_telegram_channel_state.sql"
+$stage15Migration = Join-Path $projectRoot `
+  "infrastructure\supabase\supabase\migrations\20260814124755_stage15_unified_dashboard_linking.sql"
+$stage16Migration = Join-Path $projectRoot `
+  "infrastructure\supabase\supabase\migrations\20260814165227_stage16_versioned_report_artifacts.sql"
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   throw "Docker is required for the disposable Supabase migration syntax check."
@@ -55,6 +61,12 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Could not copy the Stage 7 migration." }
   docker cp $stage12Migration "${containerName}:/tmp/stage12_langgraph_checkpoints.sql" *> $null
   if ($LASTEXITCODE -ne 0) { throw "Could not copy the Stage 12 migration." }
+  docker cp $stage14Migration "${containerName}:/tmp/stage14_telegram_channel_state.sql" *> $null
+  if ($LASTEXITCODE -ne 0) { throw "Could not copy the Stage 14 migration." }
+  docker cp $stage15Migration "${containerName}:/tmp/stage15_unified_dashboard_linking.sql" *> $null
+  if ($LASTEXITCODE -ne 0) { throw "Could not copy the Stage 15 migration." }
+  docker cp $stage16Migration "${containerName}:/tmp/stage16_versioned_report_artifacts.sql" *> $null
+  if ($LASTEXITCODE -ne 0) { throw "Could not copy the Stage 16 migration." }
 
   docker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 `
     -f /tmp/supabase_bootstrap.sql *> $null
@@ -74,6 +86,15 @@ try {
   docker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 `
     -f /tmp/stage12_langgraph_checkpoints.sql
   if ($LASTEXITCODE -ne 0) { throw "The Stage 12 migration failed PostgreSQL validation." }
+  docker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 `
+    -f /tmp/stage14_telegram_channel_state.sql
+  if ($LASTEXITCODE -ne 0) { throw "The Stage 14 migration failed PostgreSQL validation." }
+  docker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 `
+    -f /tmp/stage15_unified_dashboard_linking.sql
+  if ($LASTEXITCODE -ne 0) { throw "The Stage 15 migration failed PostgreSQL validation." }
+  docker exec $containerName psql -U postgres -v ON_ERROR_STOP=1 `
+    -f /tmp/stage16_versioned_report_artifacts.sql
+  if ($LASTEXITCODE -ne 0) { throw "The Stage 16 migration failed PostgreSQL validation." }
 
   $policyCount = docker exec $containerName psql -U postgres -Atc `
     "select count(*) from pg_policies where schemaname in ('public', 'storage');"
@@ -81,7 +102,13 @@ try {
     throw "Expected Stage 2 RLS policies were not created."
   }
 
-  Write-Host "Supabase migrations through Stage 12 passed with $policyCount RLS policies." `
+  $reportIntegrityColumnCount = docker exec $containerName psql -U postgres -Atc `
+    "select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'reports' and column_name in ('report_version','filename','content_type','size_bytes','sha256','evidence_hash','integrity_metadata');"
+  if ($LASTEXITCODE -ne 0 -or [int]$reportIntegrityColumnCount -ne 7) {
+    throw "Expected Stage 16 report integrity columns were not created."
+  }
+
+  Write-Host "Supabase migrations through Stage 16 passed with $policyCount RLS policies and $reportIntegrityColumnCount report integrity columns." `
     -ForegroundColor Green
 }
 finally {

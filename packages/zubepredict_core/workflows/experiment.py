@@ -113,9 +113,7 @@ def build_experiment_graph(
     def decision_node(state: WorkflowState) -> WorkflowState:
         context.check_cancelled()
         context.progress("profiling", 20, "Resolving the deterministic task decision")
-        decision = context.decide(
-            state.get("configuration", {}), state.get("task_override")
-        )
+        decision = context.decide(state.get("configuration", {}), state.get("task_override"))
         clarification = None
         if decision.requires_clarification:
             clarification = {
@@ -141,9 +139,7 @@ def build_experiment_graph(
         context.check_cancelled()
         context.progress("profiling", 24, "Validating the experiment plan")
         decision = TaskDecision.model_validate(state["decision"])
-        plan, clarification = context.validate_plan(
-            decision, state.get("configuration", {})
-        )
+        plan, clarification = context.validate_plan(decision, state.get("configuration", {}))
         return {
             "phase": "plan_ready" if clarification is None else "plan_needs_clarification",
             "plan": plan,
@@ -207,13 +203,9 @@ def build_experiment_graph(
     )
     builder.add_edge(START, "profile")
     builder.add_edge("profile", "decide")
-    builder.add_conditional_edges(
-        "decide", after_decision, {"clarify": "clarify", "plan": "plan"}
-    )
+    builder.add_conditional_edges("decide", after_decision, {"clarify": "clarify", "plan": "plan"})
     builder.add_edge("clarify", "decide")
-    builder.add_conditional_edges(
-        "plan", after_plan, {"clarify": "clarify", "train": "train"}
-    )
+    builder.add_conditional_edges("plan", after_plan, {"clarify": "clarify", "train": "train"})
     builder.add_edge("train", "finalize")
     builder.add_edge("finalize", END)
     return builder.compile(checkpointer=checkpointer)
@@ -234,9 +226,7 @@ def run_experiment_graph(
     if existing.get("completed"):
         return WorkflowExecution(state=existing, interrupted=False)
     invocation: WorkflowState | Command
-    invocation = (
-        Command(resume=resume_payload) if resume_payload is not None else initial_state
-    )
+    invocation = Command(resume=resume_payload) if resume_payload is not None else initial_state
     result = cast(dict[str, Any], graph.invoke(invocation, config=config))
     interrupts = result.get("__interrupt__", ())
     if interrupts:

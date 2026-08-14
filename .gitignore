@@ -1,4 +1,6 @@
 .env
+.env.local
+.env.*.local
 .venv/
 __pycache__/
 *.py[cod]
@@ -19,4 +21,10 @@ mlruns/
 *.joblib
 *.onnx
 *.log
+.hermes-state/
+integrations/hermes/runtime/
+integrations/hermes/config/*.local.yaml
+integrations/hermes/config/*.secret.*
+integrations/hermes/**/*.credential
+integrations/hermes/**/*.token
 .DS_Store

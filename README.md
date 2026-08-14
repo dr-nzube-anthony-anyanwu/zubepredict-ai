@@ -5,10 +5,10 @@ tabular datasets, validates and profiles them, determines an appropriate machine
 task, blocks unsafe leakage patterns, compares suitable models, persists reproducible
 evidence, and pauses for human clarification when a decision cannot be made safely.
 
-The repository currently implements Stages 0 through 12 of the project roadmap. The
-next planned stage is Stage 13, the grounded Nous Hermes language layer. The existing
-language-provider abstraction is only a foundation; it is not yet the completed Stage 13
-integration.
+The repository currently implements Stages 0 through 16 of the project roadmap. Stage 15
+adds the authenticated Next.js workspace, Supabase Auth SSR sessions, one-time Telegram
+account linking, revocation, and shared cross-channel projects, datasets, experiments,
+evidence and reports. Stage 14's private owner smoke test passed before Stage 15 began.
 
 For the engineering history, corrections, current stopping point, and instructions for a
 future Codex session, read [IMPLEMENTATION.md](IMPLEMENTATION.md) before making changes.
@@ -104,13 +104,51 @@ monitoring, privacy controls, security review, and accountable human oversight.
 - Clarification interrupts resume the same experiment, job, and graph thread.
 - A completed checkpoint is returned without running training again.
 
+### Grounded Hermes agent boundary
+
+- Nous Hermes is the outer agent runtime; deterministic Python remains authoritative.
+- A native tracked plugin exposes only explicitly allow-listed tools through FastAPI.
+- HMAC-signed requests bind method, path, timestamp, nonce, trusted principal, and body.
+- Owner identity and service credentials never appear in model-controlled arguments.
+- Constitution approval, job start, clarification, and cancellation are explicit.
+- Dataset-derived metadata is untrusted and raw rows are not returned to Hermes.
+- Hash-addressed evidence prevents the language layer from changing recorded metrics.
+- OpenRouter model selection is replaceable and configured privately through Hermes.
+
+### Secure Hermes Telegram channel
+
+- Official Telegram Bot API and Hermes Agent's bundled Telegram gateway are the primary route.
+- Local development uses Hermes polling; no public webhook or deployment is configured.
+- Only one configured numerical Telegram user ID is accepted, and private DMs are required.
+- Trusted sender metadata is signed outside LLM-controlled arguments and verified by FastAPI.
+- Seventeen strict ZubePredict tools cover projects, linking, upload/state, constitutions, jobs,
+  evidence and temporary reports; no terminal or general Hermes tools reach Telegram.
+- Authoritative Supabase state survives Hermes restarts without restarting experiments.
+- CSV, XLSX and Parquet attachments are validated, fingerprinted, privately stored under
+  UUID names, deduplicated, and removed from the gateway cache.
+- The aiogram starter is a documented disabled fallback and cannot start without an
+  explicit unsafe operational override.
+
+### Unified authenticated dashboard
+
+- Supabase email/password Auth with server-refreshed cookies and protected dashboard routes.
+- Responsive project, private dataset upload, Auto/Expert Constitution, progress, leaderboard,
+  plain-language verified evidence, styled Evidence Card and temporary report views.
+- One-time eight-digit Telegram linking codes are HMAC-hashed, short-lived, single-use,
+  rate-limited, auditable without raw codes, and revocable.
+- Web and linked Telegram calls map to the same Supabase owner. Creation channel is descriptive
+  metadata and never changes ownership.
+- Browser source is automatically scanned for prohibited backend secret names.
+
 ## Architecture
 
 ```text
-Browser / API client
-        |
-        v
-Next.js :3040 -----> FastAPI :8040 -----> Supabase Auth/Postgres/Storage
+Browser / API client            Telegram Bot API → Hermes + OpenRouter
+        |                                      |
+        v                                      | signed trusted-channel tools
+Next.js :3040 -----> FastAPI :8040 <-----------+
+                              |
+                              +---------------> Supabase Auth/Postgres/Storage
                               |
                               v
                          Redis :6379
@@ -125,9 +163,9 @@ Next.js :3040 -----> FastAPI :8040 -----> Supabase Auth/Postgres/Storage
                  artifacts, runs, checkpoints
 ```
 
-The frontend is currently a starter landing interface. The complete authenticated project
-dashboard is planned for Stage 15. Docker Compose currently manages Redis, the API, and
-the worker; the Next.js frontend runs separately from `apps/web`.
+Docker Compose manages Redis, the API, and the worker. The authenticated Next.js dashboard
+runs separately from `apps/web` on port 3040 and calls the same FastAPI/LangGraph services as
+Telegram.
 
 ## Technology stack
 
@@ -137,10 +175,11 @@ the worker; the Next.js frontend runs separately from `apps/web`.
 | Data and ML | pandas, NumPy, SciPy, scikit-learn, statsmodels |
 | Advanced ML | XGBoost, LightGBM, CatBoost, Optuna, SHAP, skops |
 | Orchestration | LangGraph |
+| Agent layer | Nous Hermes v0.20.0 native plugin and OpenRouter |
 | Jobs | Redis and Dramatiq |
 | Persistence | Supabase Postgres, Auth, Storage, and RLS |
 | Frontend | Next.js 15, React 19, TypeScript |
-| Bot foundation | aiogram |
+| Telegram | Official Bot API + Hermes Agent gateway; aiogram disabled fallback |
 | LLM foundation | Template, OpenRouter, or Ollama-compatible client |
 | Tooling | uv, pytest, Ruff, mypy, Docker Compose |
 
@@ -154,7 +193,7 @@ apps/
   api/                 FastAPI application and HTTP routes
   worker/              Dramatiq broker and experiment actors
   web/                 Next.js frontend on port 3040
-  telegram_bot/        Early polling bot foundation
+  telegram_bot/        Explicitly disabled aiogram fallback only
 packages/zubepredict_core/
   data_engine/         Loading, profiling, task detection, quality and leakage
   datasets/            Safe file handling and Supabase Storage lifecycle
@@ -168,6 +207,8 @@ infrastructure/
   docker/              Python 3.11 image
   render/              Restricted demonstration API definition
   supabase/            Base schema and ordered migrations
+integrations/
+  hermes/              Native signed-tool plugin, configs, install and verification
 scripts/               Diagnosis, tests, migration validation, and live smoke checks
 tests/                 Unit and integration coverage
 docs/                  Stage-specific details and roadmap
@@ -213,17 +254,31 @@ Never commit `.env` or paste its values into documentation, issues, prompts, or 
 | `REDIS_URL` | Dramatiq broker | Yes for async jobs |
 | `LLM_PROVIDER` | `template`, `openrouter`, or `ollama` | Defaults to `template` |
 | `OPENROUTER_API_KEY` | OpenRouter authentication | Only when selected |
+| `HERMES_SERVICE_KEYS` | Rotatable `key-id:secret` API credentials | Stage 13 backend |
+| `HERMES_DEV_PRINCIPAL_ID` | Explicit local Supabase owner UUID | Stage 13 development |
+| `HERMES_TELEGRAM_OWNER_ID` | Numerical owner ID verified by FastAPI | Stage 14 backend |
+| `HERMES_TELEGRAM_REPORT_TTL_SECONDS` | Temporary report URL lifetime | Stage 14 backend |
+| `TELEGRAM_LINKING_CODE_SECRET` | Server-only one-time link-code HMAC key | Stage 15 linking |
 | `OLLAMA_BASE_URL` | Local Ollama-compatible endpoint | Only when selected |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot authentication | Future Telegram work |
+| `TELEGRAM_BOT_TOKEN` | Disabled aiogram fallback only in project `.env` | Leave blank with Hermes |
 | `NEXT_PUBLIC_API_BASE_URL` | Browser-visible API URL | Frontend integration |
-| `NEXT_PUBLIC_SUPABASE_URL` | Browser-visible Supabase URL | Future dashboard Auth |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe anon key | Future dashboard Auth |
+| `NEXT_PUBLIC_SUPABASE_URL` | Browser-visible Supabase URL | Stage 15 dashboard Auth |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe anon key | Stage 15 dashboard Auth |
 
 Only variables beginning with `NEXT_PUBLIC_` are intended for the browser. Never create a
 `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY` or otherwise expose the service-role key.
 
+The backend reads the root `.env`. Next.js reads `apps/web/.env.local`; copy only the three
+documented `NEXT_PUBLIC_` values into that ignored frontend file. See
+`docs/16-STAGE-15-DASHBOARD.md` for the complete Auth and linking setup.
+
 The remaining limits and defaults are documented in `.env.example` and validated by
 `packages/zubepredict_core/shared/config.py`.
+
+Hermes has a separate ignored environment at `%LOCALAPPDATA%\hermes\.env`. Its variable
+names are documented in `integrations/hermes/config/hermes.env.example`. The OpenRouter
+key and Hermes service key must never enter Git, prompts, tool arguments, or frontend
+variables.
 
 ## Create or repair the Python 3.11 virtual environment
 
@@ -272,6 +327,7 @@ The ordered migrations are:
 2. `20260809013027_intent_target_task_decisions.sql`
 3. `20260809025738_async_experiment_jobs.sql`
 4. `20260809045626_langgraph_workflow_checkpoints.sql`
+5. `20260812132803_stage14_telegram_channel_state.sql`
 
 If an older migration was previously executed manually in the SQL editor but is missing
 from CLI history, do not replay it blindly. Confirm the schema exists, then use
@@ -350,6 +406,27 @@ cd apps\web
 npm run dev
 ```
 
+### Optional Terminal 5: Hermes CLI (Stage 13)
+
+After completing the private setup in `integrations/hermes/README.md`:
+
+```powershell
+.\integrations\hermes\install-plugin.ps1
+hermes plugins list
+hermes
+```
+
+Hermes is not a Compose service. For the Stage 14 owner-only Telegram gateway, follow
+`docs/15-STAGE-14-TELEGRAM.md`, then run the guarded polling wrapper:
+
+```powershell
+.\integrations\hermes\configure-telegram.ps1
+.\scripts\smoke-stage14-telegram.ps1
+.\integrations\hermes\start-telegram-gateway.ps1
+```
+
+Never paste the BotFather token into chat. It belongs only in `%LOCALAPPDATA%\hermes\.env`.
+
 ## API overview
 
 All application routes except `/health` use the `/api/v1` prefix.
@@ -373,6 +450,10 @@ All application routes except `/health` use the `/api/v1` prefix.
 
 Authenticated routes require a Supabase user access token as a Bearer token. Job creation
 also requires an `Idempotency-Key` header of at least eight characters.
+
+The dedicated `/api/v1/hermes/*` surface contains thirteen signed tool endpoints. It is
+service-authenticated and owner-scoped, not a replacement for browser Bearer Auth. See
+`integrations/hermes/README.md` and `docs/architecture/ADR-013-hermes-agent-boundary.md`.
 
 ## Workflow states and resumability
 
@@ -403,6 +484,18 @@ Run the complete explicit gate:
 .\.venv\Scripts\pytest.exe -q
 cd apps\web
 npm run build
+```
+
+Run the focused, no-paid-LLM Stage 13 gate:
+
+```powershell
+.\integrations\hermes\verify-stage13.ps1
+```
+
+Run the Stage 14 mocked integration tests without Telegram or provider spending:
+
+```powershell
+.\.venv\Scripts\pytest.exe tests\unit\test_stage14_*.py -q
 ```
 
 Build Docker images without starting services:
@@ -472,23 +565,38 @@ There is no `web` service in `compose.yaml`. Build the frontend with `npm run bu
 - Graph checkpoints are private server-only implementation state.
 - LLM text is an explanation layer and cannot create or modify verified metrics.
 - Dataset cell content must be treated as untrusted data, never as an instruction.
+- Hermes schemas forbid unknown fields and do not accept owner IDs, service keys, local
+  paths, SQL, or arbitrary URLs.
+- The local Hermes principal mapper is refused in production; production requires an
+  independently authenticated mapping and shared replay store.
+- Telegram's effective Hermes runtime toolset is exactly `zubepredict`; terminal, filesystem,
+  browser, code execution, cron, delegation, Kanban and globally configured MCP tools are
+  excluded. Broad/global gateway allowlists, allow-all flags, groups and non-owner pairing
+  approvals fail startup.
+- Telegram tokens remain only in the ignored Hermes environment and never enter Next.js,
+  Supabase, API responses, logs or screenshots.
+- Report artifacts are generated once from Evidence Envelope v2, privately stored with version,
+  byte-size, SHA-256 and evidence-hash metadata, then shared unchanged across web, Telegram and
+  authenticated API access.
+- Human-facing report version 3 provides a styled HTML/PDF Evidence Report, a concise HTML EyeCare
+  Evidence Card, a plain-language HTML Model Card and a formatted prediction workbook. Guided
+  explanations lead the reader while technical audit sections remain expandable. Technical JSON
+  artifacts stay pretty-printed for audit/interchange use, and old report versions remain immutable.
+- Report links are owned, audited, generic, and expire after a bounded short interval.
 
 ## Known limitations and roadmap
 
-Completed: Stages 0 through 12.
+Completed in code and automated verification: Stages 0 through 16. The Stage 16 remote migration
+and private cross-channel artifact smoke test are documented in `docs/17-STAGE-16-REPORTING.md`.
 
 Not yet completed:
 
-- Stage 13: hardened Nous Hermes/OpenRouter/Ollama structured language layer.
-- Stage 14: secure Telegram experiment workflow.
-- Stage 15: full authenticated Next.js dashboard.
-- Stage 16: HTML/PDF/model-card reporting.
 - Stage 17: production quotas, retention automation, and security hardening.
 - Stage 18: demonstration deployment and operational monitoring.
 
-The Telegram app and LLM client currently present in the repository are foundations, not
-claims that those later stages are finished. Render configuration is a restricted demo
-starting point, not a production deployment.
+Production identity scaling beyond the current private owner gateway, shared replay protection,
+quotas and hardening remain later work. Render configuration is a restricted demo starting
+point, not a production deployment. No public Stage 15 deployment was performed.
 
 ## Additional documentation
 
@@ -496,6 +604,12 @@ starting point, not a production deployment.
 - `docs/02-ACCOUNTS-AND-KEYS.md`
 - `docs/03-BUILD-ROADMAP.md`
 - `docs/04-STAGE-2-SUPABASE.md` through `docs/13-STAGE-12-LANGGRAPH-ORCHESTRATION.md`
+- `docs/architecture/ADR-013-hermes-agent-boundary.md`
+- `docs/architecture/ADR-014-hermes-telegram-trusted-channel.md`
+- `docs/15-STAGE-14-TELEGRAM.md`
+- `docs/16-STAGE-15-DASHBOARD.md`
+- `docs/17-STAGE-16-REPORTING.md`
+- `integrations/hermes/README.md`
 - `docs/codex-prompts/00-MASTER-PROMPT.md`
 - `IMPLEMENTATION.md`
 

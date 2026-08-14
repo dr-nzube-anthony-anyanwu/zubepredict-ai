@@ -3,6 +3,7 @@ from fastapi import APIRouter
 router = APIRouter(tags=["health"])
 
 
+@router.get("/api/v1/health", include_in_schema=False)
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "healthy", "service": "zubepredict-api", "stage": "starter"}

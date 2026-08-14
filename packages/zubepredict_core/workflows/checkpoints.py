@@ -146,8 +146,8 @@ class SupabaseCheckpointSaver(BaseCheckpointSaver[int]):
         before: RunnableConfig | None = None,
         limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
-        query = self._client.table(self.checkpoints_table).select("*").eq(
-            "owner_id", self._owner_id
+        query = (
+            self._client.table(self.checkpoints_table).select("*").eq("owner_id", self._owner_id)
         )
         if config is not None:
             thread_id, namespace, _ = self._identity(config)
@@ -238,8 +238,6 @@ class SupabaseCheckpointSaver(BaseCheckpointSaver[int]):
             )
         query = self._client.table(self.writes_table).upsert(
             payload,
-            on_conflict=(
-                "owner_id,thread_id,checkpoint_ns,checkpoint_id,task_id,write_index"
-            ),
+            on_conflict=("owner_id,thread_id,checkpoint_ns,checkpoint_id,task_id,write_index"),
         )
         self._execute(query, "write pending")

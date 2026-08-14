@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -17,6 +18,8 @@ class FakeStorage:
     def __init__(self, content: bytes = b"target,value\n0,10\n1,20\n") -> None:
         self.content = content
         self.deleted: list[str] = []
+        self.uploaded: dict[str, bytes] = {}
+        self.fail_upload = False
 
     def create_upload_url(self, path: str) -> tuple[str, str]:
         return f"https://storage.invalid/upload/{path}", "short-lived-token"
@@ -29,6 +32,12 @@ class FakeStorage:
 
     def delete(self, path: str) -> None:
         self.deleted.append(path)
+
+    def upload(self, path: str, content: bytes, content_type: str) -> None:
+        del content_type
+        if self.fail_upload:
+            raise RuntimeError("interrupted storage transfer")
+        self.uploaded[path] = content
 
 
 class FakeProjectRepository:
@@ -51,6 +60,18 @@ class FakeDatasetRepository:
     def get_by_storage_path(self, storage_path: str) -> DatasetRecord | None:
         return next(
             (record for record in self.records.values() if record.storage_path == storage_path),
+            None,
+        )
+
+    def get_by_fingerprint(self, project_id: UUID, sha256: str) -> DatasetRecord | None:
+        return next(
+            (
+                record
+                for record in self.records.values()
+                if record.project_id == project_id
+                and record.sha256 == sha256
+                and record.retention_status == "active"
+            ),
             None,
         )
 
@@ -200,3 +221,69 @@ def test_owned_delete_is_retained_in_audit_log(monkeypatch) -> None:
         "dataset.deletion_started",
         "dataset.deleted",
     ]
+
+
+def test_direct_ingest_uses_private_uuid_path_and_deduplicates(monkeypatch) -> None:
+    service, project, datasets, audit, storage = lifecycle(monkeypatch)
+    content = b"target,value\n0,10\n1,20\n"
+
+    first = service.ingest_chunks(
+        project_id=project.id,
+        filename="safe.csv",
+        content_type="text/csv",
+        chunks=(content[:8], content[8:]),
+    )
+    second = service.ingest_chunks(
+        project_id=project.id,
+        filename="another-name.csv",
+        content_type="text/csv",
+        chunks=(content,),
+    )
+
+    assert first.duplicate is False
+    assert second.duplicate is True
+    assert second.dataset.id == first.dataset.id
+    assert len(datasets.records) == 1
+    path = next(iter(storage.uploaded))
+    owner, object_name = path.split("/")
+    assert UUID(owner) == project.owner_id
+    assert UUID(object_name.removesuffix(".csv"))
+    assert [event["action"] for event in audit.events] == [
+        "dataset.telegram_uploaded",
+        "dataset.duplicate_detected",
+    ]
+
+
+def test_interrupted_direct_ingest_leaves_no_dataset_or_object(monkeypatch) -> None:
+    service, project, datasets, _, storage = lifecycle(monkeypatch)
+    storage.fail_upload = True
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        service.ingest_chunks(
+            project_id=project.id,
+            filename="safe.csv",
+            content_type="text/csv",
+            chunks=(b"target,value\n0,10\n",),
+        )
+
+    assert not datasets.records
+    assert not storage.uploaded
+
+
+def test_direct_ingest_accepts_valid_xlsx(monkeypatch) -> None:
+    service, project, _, _, storage = lifecycle(monkeypatch)
+    workbook = BytesIO()
+    import pandas as pd
+
+    pd.DataFrame({"target": [0, 1], "value": [10, 20]}).to_excel(workbook, index=False)
+
+    ingested = service.ingest_chunks(
+        project_id=project.id,
+        filename="safe.xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        chunks=(workbook.getvalue(),),
+    )
+
+    assert ingested.duplicate is False
+    assert ingested.dataset.file_format == "xlsx"
+    assert next(iter(storage.uploaded)).endswith(".xlsx")

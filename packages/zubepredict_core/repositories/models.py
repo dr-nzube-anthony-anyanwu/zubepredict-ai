@@ -16,6 +16,7 @@ class RepositoryRecord(BaseModel):
 class ProjectRecord(RepositoryRecord):
     name: str
     description: str | None = None
+    source_channel: str = "api"
     updated_at: datetime | None = None
 
 
@@ -30,6 +31,7 @@ class DatasetRecord(RepositoryRecord):
     profile: dict[str, Any] | None = None
     media_type: str = "application/octet-stream"
     file_format: str = "csv"
+    source_channel: str = "api"
     retention_status: str = "active"
     retention_expires_at: datetime | None = None
     validated_at: datetime | None = None
@@ -65,6 +67,7 @@ class ExperimentRecord(RepositoryRecord):
     attempt_count: int = 0
     state_version: int = 1
     result_summary: dict[str, Any] = Field(default_factory=dict)
+    source_channel: str = "api"
 
 
 class ModelRunRecord(RepositoryRecord):
@@ -85,6 +88,13 @@ class ReportRecord(RepositoryRecord):
     experiment_id: UUID
     report_type: str
     storage_path: str
+    report_version: int = 1
+    filename: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    sha256: str | None = None
+    evidence_hash: str | None = None
+    integrity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AuditLogRecord(BaseModel):

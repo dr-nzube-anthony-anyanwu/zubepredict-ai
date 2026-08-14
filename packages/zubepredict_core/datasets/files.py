@@ -132,6 +132,8 @@ def _validate_xlsx_archive(path: Path, max_uncompressed_bytes: int) -> None:
             names = set(archive.namelist())
             if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
                 raise DatasetFileError("The .xlsx file is not a valid Excel workbook.")
+            if any(name.lower().endswith("vbaproject.bin") for name in names):
+                raise DatasetFileError("Macro-enabled Excel workbooks are not supported.")
             total = 0
             for member in archive.infolist():
                 total += member.file_size

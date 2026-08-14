@@ -27,6 +27,21 @@ class Settings(BaseSettings):
     ollama_model: str = "hf.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF:Q4_K_M"
     llm_timeout_seconds: int = 60
 
+    hermes_service_keys: SecretStr = SecretStr("")
+    hermes_dev_principal_id: str = ""
+    hermes_request_timeout_seconds: int = Field(default=15, ge=1, le=120)
+    hermes_max_clock_skew_seconds: int = Field(default=300, ge=30, le=3600)
+    hermes_replay_ttl_seconds: int = Field(default=600, ge=60, le=7200)
+    hermes_telegram_owner_id: str = ""
+    hermes_telegram_unsafe_allow_all: bool = False
+    hermes_telegram_report_ttl_seconds: int = Field(default=300, ge=60, le=900)
+    telegram_linking_code_secret: SecretStr = SecretStr("")
+    telegram_linking_code_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    telegram_linking_max_attempts: int = Field(default=5, ge=3, le=20)
+    telegram_linking_attempt_window_seconds: int = Field(default=600, ge=60, le=3600)
+
+    # Disabled aiogram fallback only. The Stage 14 primary token belongs in
+    # the Hermes secret environment as TELEGRAM_BOT_TOKEN.
     telegram_bot_token: str = ""
     telegram_mode: Literal["polling", "webhook"] = "polling"
 

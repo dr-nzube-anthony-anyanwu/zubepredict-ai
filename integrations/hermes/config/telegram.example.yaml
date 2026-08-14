@@ -1,0 +1,44 @@
+# Merge these values into %LOCALAPPDATA%\hermes\config.yaml with the provided
+# configure-telegram.ps1 script. Secrets belong in the separate Hermes .env.
+platform_toolsets:
+  telegram:
+    # Config-only marker: makes the list authoritative; STT remains disabled.
+    - stt
+    - zubepredict
+    # Opt out of every globally configured MCP server.
+    - no_mcp
+
+agent:
+  # Pinned Hermes otherwise recovers its non-configurable Kanban toolset.
+  disabled_toolsets: [kanban]
+
+gateway:
+  streaming:
+    enabled: true
+    transport: auto
+  platforms:
+    telegram:
+      extra:
+        # Direct messages are authorised by TELEGRAM_ALLOWED_USERS. Telegram
+        # applies allowed_chats only to groups; impossible chat ID 0 therefore
+        # drops every group before dispatch while leaving DMs available.
+        allowed_chats: ["0"]
+        group_allow_from: []
+        group_allowed_chats: []
+        guest_mode: false
+        observe_unmentioned_group_messages: false
+        require_mention: true
+        # User ID 0 is impossible on Telegram. A non-empty list keeps Hermes'
+        # slash gate enabled while granting admin commands to nobody.
+        allow_admin_from: ["0"]
+        user_allowed_commands:
+          - help
+          - whoami
+          - commands
+          - new
+          - reset
+          - zlink
+          - zreport
+
+stt:
+  enabled: false
