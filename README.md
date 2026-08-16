@@ -10,8 +10,8 @@ Next.js dashboard and Hermes Telegram agent share the same owner-scoped projects
 experiments, evidence and reports. Stage 16 generates one authoritative, versioned artifact bundle
 for every channel. Stage 17 adds distributed quotas, privacy attestation, retention controls,
 security logging and a production security gate. Stages 14 and 15 passed their private owner smoke
-tests; the complete Stage 17 automated regression passed locally. The Stage 17 database migration
-is still local-only, and no public deployment has been performed.
+tests; the complete Stage 17 automated regression passed locally. The Stage 17 migration is applied
+and physically verified on the hosted development database. No public deployment has been performed.
 
 For the engineering history, corrections, current stopping point, and instructions for a
 future Codex session, read [IMPLEMENTATION.md](IMPLEMENTATION.md) before making changes.
@@ -345,9 +345,9 @@ The ordered migrations are:
 7. `20260814165227_stage16_versioned_report_artifacts.sql`
 8. `20260815002438_stage17_security_quotas_retention.sql`
 
-The hosted development project is currently aligned through migration 7. Migration 8 has passed
-the disposable local PostgreSQL validator but must still be reviewed and pushed by the owner before
-any live Stage 17 smoke test. A local validation pass is not evidence that the hosted schema changed.
+The hosted development project is aligned through migration 8. On 2026-08-16, the owner confirmed
+matching local/remote migration history, an empty `db push --dry-run`, all three Stage 17 schema
+checks, and both quota triggers. This verifies the physical hosted schema as well as migration history.
 
 If an older migration was previously executed manually in the SQL editor but is missing
 from CLI history, do not replay it blindly. Confirm the schema exists, then use
@@ -629,8 +629,9 @@ There is no `web` service in `compose.yaml`. Build the frontend with `npm run bu
 
 ## Known limitations and roadmap
 
-Completed in code and automated verification: Stages 0 through 17. Stage 17 is implemented locally;
-its migration and manual production-only checklist have not been applied to public infrastructure.
+Completed in code and automated verification: Stages 0 through 17. The Stage 17 migration is applied
+and verified on the hosted development database. The production-only checklist remains incomplete,
+and no public infrastructure deployment has been performed.
 
 Not yet completed:
 

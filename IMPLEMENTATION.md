@@ -35,7 +35,7 @@ Before changing this repository:
 Last updated: 2026-08-16.
 
 Current stopping point: **Stage 17 security/privacy/quota hardening is implemented and locally
-verified. The Stage 17 migration exists locally but has not been pushed to the hosted Supabase
+verified. Its migration is applied and physically verified on the hosted development Supabase
 project. No public deployment was performed. Do not begin Stage 18 without explicit approval.**
 
 The product now includes the backend/ML/orchestration foundation, hardened local
@@ -57,10 +57,11 @@ Current runtime state at the last verification:
 - The hosted Supabase database supports the live Stage 14 owner flow; no secret values or
   signed report URLs are recorded in this file.
 - The Supabase project is linked locally under `infrastructure/supabase`.
-- Supabase migration history is aligned remotely through Stage 16, including
-  `20260814165227_stage16_versioned_report_artifacts.sql`.
-- Stage 17 migration `20260815002438_stage17_security_quotas_retention.sql` is local-only pending
-  owner-reviewed staging/remote push.
+- Supabase migration history is aligned remotely through Stage 17, including
+  `20260815002438_stage17_security_quotas_retention.sql`.
+- On 2026-08-16, the owner confirmed an up-to-date dry run, the Stage 17 server-only limits table,
+  dataset privacy field, report retention field and both database quota triggers on the hosted
+  development project. This confirms physical schema state rather than migration history alone.
 - The tracked Hermes plugin manifest is v0.4.0. Because Stage 17 changed plugin/runtime policy files,
   refresh the installed plugin configuration before the next live Telegram verification; do not
   assume the managed Hermes copy already contains uncommitted workspace changes.
@@ -216,8 +217,9 @@ The current ordered migration history is:
 | `20260814165227` | Versioned channel-independent report artifacts and integrity metadata |
 | `20260815002438` | Security limits, privacy attestations, retention metadata and quota triggers |
 
-The hosted development project is aligned through `20260814165227`. The Stage 17 migration
-`20260815002438` is present and locally validated but has not been applied remotely.
+The hosted development project is aligned through `20260815002438`. The owner verified matching
+local/remote history, no pending dry-run migration, the expected Stage 17 table/columns and both
+quota triggers on 2026-08-16.
 
 The base schema is intentionally stored separately as
 `infrastructure/supabase/001_initial_schema.sql`. A new project must execute that file once
@@ -890,7 +892,9 @@ Correction discovered during implementation:
   serialized at the database boundary as well.
 
 No secrets were rotated by Codex because credential rotation is a manual account-owner action.
-No retention deletion was executed. No migration was pushed remotely.
+No retention deletion was executed. At the time Stage 17 code verification ended, no migration had
+been pushed remotely; the owner subsequently applied and verified it on 2026-08-16 as recorded in
+the current-status and migration-history sections above.
 
 Verification: 233 tests, Ruff and mypy passed; Next.js production build passed; the complete
 Stage 2–17 disposable PostgreSQL chain passed; npm and Python advisory audits found zero known
