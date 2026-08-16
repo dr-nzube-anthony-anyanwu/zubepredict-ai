@@ -10,6 +10,8 @@ from zubepredict_core.repositories.supabase import (
 )
 from zubepredict_core.shared.config import get_settings
 
+from zubepredict_api.security.quotas import enforce_user_rate
+
 bearer = HTTPBearer(auto_error=False)
 
 
@@ -19,7 +21,9 @@ def require_user_session(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "A bearer access token is required.")
     try:
-        return create_authenticated_session(get_settings(), credentials.credentials)
+        session = create_authenticated_session(get_settings(), credentials.credentials)
+        enforce_user_rate(session.user_id)
+        return session
     except SupabaseConfigurationError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except SupabaseRepositoryError as exc:

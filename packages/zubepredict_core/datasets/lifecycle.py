@@ -28,11 +28,32 @@ from zubepredict_core.repositories.supabase import (
     create_service_repositories,
     create_service_session,
 )
+from zubepredict_core.security import QuotaBackendUnavailable, QuotaExceeded, get_quota_guard
 from zubepredict_core.shared.config import Settings
 
 
 class DatasetLifecycleError(RuntimeError):
     """Raised when a secure dataset lifecycle operation cannot complete."""
+
+
+def _storage_bytes(repositories: SupabaseRepositorySet) -> int:
+    counter = getattr(repositories.datasets, "active_storage_bytes", None)
+    return int(counter()) if callable(counter) else 0
+
+
+def _consume_upload_quota(settings: Settings, owner_id: UUID, action: str, limit: int) -> None:
+    try:
+        get_quota_guard().consume(owner_id, action, limit=limit, window_seconds=86_400)
+    except (QuotaExceeded, QuotaBackendUnavailable) as exc:
+        raise DatasetLifecycleError(str(exc)) from exc
+
+
+def _require_privacy_attestation(settings: Settings, confirmed: bool) -> None:
+    if settings.require_dataset_privacy_attestation and not confirmed:
+        raise DatasetLifecycleError(
+            "Confirm that you are authorised to use this dataset and that direct identifiers "
+            "have been removed before uploading."
+        )
 
 
 @dataclass(frozen=True)
@@ -130,6 +151,10 @@ class DatasetLifecycleService:
         self._repositories = repositories
         self._storage = storage
 
+    @property
+    def owner_id(self) -> UUID:
+        return self._session.user_id
+
     @classmethod
     def from_access_token(cls, settings: Settings, access_token: str) -> DatasetLifecycleService:
         session = create_authenticated_session(settings, access_token)
@@ -152,11 +177,19 @@ class DatasetLifecycleService:
         content_type: str,
         chunks: Iterable[bytes],
         source_channel: str = "api",
+        privacy_attested: bool = False,
     ) -> IngestedDataset:
         project = self._repositories.projects.get(project_id)
         if project is None:
             raise DatasetLifecycleError("The project was not found or is not owned by this user.")
         metadata = validate_upload_metadata(filename, content_type)
+        _require_privacy_attestation(self._settings, privacy_attested)
+        _consume_upload_quota(
+            self._settings,
+            self._session.user_id,
+            "dataset.upload",
+            self._settings.user_uploads_per_day,
+        )
         temporary_path: Path | None = None
         storage_path: str | None = None
         uploaded = False
@@ -191,6 +224,12 @@ class DatasetLifecycleService:
                 )
                 return IngestedDataset(dataset=duplicate, inspection=None, duplicate=True)
 
+            if (
+                _storage_bytes(self._repositories) + streamed.size_bytes
+                > self._settings.user_storage_quota_bytes
+            ):
+                raise DatasetLifecycleError("This account has reached its private storage quota.")
+
             storage_path = f"{self._session.user_id}/{uuid4()}{metadata.suffix}"
             self._storage.upload(storage_path, temporary_path.read_bytes(), metadata.media_type)
             uploaded = True
@@ -212,6 +251,9 @@ class DatasetLifecycleService:
                 retention_status="active",
                 retention_expires_at=expires_at,
                 source_channel=source_channel,
+                privacy_attested_at=datetime.now(UTC) if privacy_attested else None,
+                deidentified_confirmed=privacy_attested,
+                consent_scope="authorised-deidentified-analysis" if privacy_attested else None,
             )
             self._repositories.audit_logs.record(
                 action="dataset.telegram_uploaded",
@@ -238,11 +280,19 @@ class DatasetLifecycleService:
         project_id: UUID,
         filename: str,
         content_type: str,
+        privacy_attested: bool = False,
     ) -> UploadIntent:
         project = self._repositories.projects.get(project_id)
         if project is None:
             raise DatasetLifecycleError("The project was not found or is not owned by this user.")
         metadata = validate_upload_metadata(filename, content_type)
+        _require_privacy_attestation(self._settings, privacy_attested)
+        _consume_upload_quota(
+            self._settings,
+            self._session.user_id,
+            "dataset.upload_intent",
+            max(self._settings.user_uploads_per_day * 3, 10),
+        )
         storage_path = f"{self._session.user_id}/{uuid4()}{metadata.suffix}"
         signed_url, upload_token = self._storage.create_upload_url(storage_path)
         return UploadIntent(
@@ -262,11 +312,13 @@ class DatasetLifecycleService:
         storage_path: str,
         filename: str,
         content_type: str,
+        privacy_attested: bool = False,
     ) -> FinalizedDataset:
         project = self._repositories.projects.get(project_id)
         if project is None:
             raise DatasetLifecycleError("The project was not found or is not owned by this user.")
         metadata = validate_upload_metadata(filename, content_type)
+        _require_privacy_attestation(self._settings, privacy_attested)
         self._validate_owned_object_path(storage_path, metadata)
         if self._repositories.datasets.get_by_storage_path(storage_path) is not None:
             raise DatasetLifecycleError("This uploaded object has already been finalized.")
@@ -293,8 +345,19 @@ class DatasetLifecycleService:
                 preview_rows=self._settings.dataset_preview_rows,
                 preview_columns=self._settings.dataset_preview_columns,
             )
-            expires_at = datetime.now(UTC) + timedelta(days=self._settings.dataset_retention_days)
+            _consume_upload_quota(
+                self._settings,
+                self._session.user_id,
+                "dataset.upload",
+                self._settings.user_uploads_per_day,
+            )
             trusted = create_service_repositories(self._settings, self._session.user_id)
+            if (
+                _storage_bytes(trusted) + streamed.size_bytes
+                > self._settings.user_storage_quota_bytes
+            ):
+                raise DatasetLifecycleError("This account has reached its private storage quota.")
+            expires_at = datetime.now(UTC) + timedelta(days=self._settings.dataset_retention_days)
             dataset = trusted.datasets.register(
                 project_id=project_id,
                 original_filename=metadata.original_filename,
@@ -312,6 +375,19 @@ class DatasetLifecycleService:
                 retention_status="active",
                 retention_expires_at=expires_at,
                 source_channel="web",
+                privacy_attested_at=datetime.now(UTC) if privacy_attested else None,
+                deidentified_confirmed=privacy_attested,
+                consent_scope="authorised-deidentified-analysis" if privacy_attested else None,
+            )
+            trusted.audit_logs.record(
+                action="dataset.web_uploaded",
+                resource_type="dataset",
+                resource_id=dataset.id,
+                metadata={
+                    "project_id": str(project_id),
+                    "sha256": streamed.sha256,
+                    "size_bytes": streamed.size_bytes,
+                },
             )
             return FinalizedDataset(dataset=dataset, inspection=inspection)
         except Exception:

@@ -21,6 +21,12 @@ node_modules
 **/.next/
 .DS_Store
 *.log
+.hermes
+.hermes-state
+hermes-home
+**/sessions.db
+**/conversation*.db
+integrations/hermes/runtime
 tests
 docs
 sample_data

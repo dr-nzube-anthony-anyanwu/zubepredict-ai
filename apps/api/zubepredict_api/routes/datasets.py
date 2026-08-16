@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from zubepredict_api.security.quotas import enforce_user_rate
 from zubepredict_core.datasets import DatasetFileError, DatasetLifecycleError
 from zubepredict_core.datasets.lifecycle import DatasetLifecycleService
 from zubepredict_core.repositories.supabase import (
@@ -20,6 +21,7 @@ class PrepareUploadRequest(BaseModel):
     project_id: UUID
     filename: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=150)
+    privacy_attested: bool = False
 
 
 class UploadIntentResponse(BaseModel):
@@ -38,6 +40,7 @@ class FinalizeUploadRequest(BaseModel):
     storage_path: str = Field(min_length=1, max_length=500)
     filename: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=150)
+    privacy_attested: bool = False
 
 
 class DatasetPreviewResponse(BaseModel):
@@ -68,7 +71,11 @@ def _service(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "A bearer access token is required.")
     try:
-        return DatasetLifecycleService.from_access_token(get_settings(), credentials.credentials)
+        service = DatasetLifecycleService.from_access_token(
+            get_settings(), credentials.credentials
+        )
+        enforce_user_rate(service.owner_id)
+        return service
     except SupabaseConfigurationError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except SupabaseRepositoryError as exc:
@@ -85,6 +92,7 @@ def prepare_upload(
             project_id=request.project_id,
             filename=request.filename,
             content_type=request.content_type,
+            privacy_attested=request.privacy_attested,
         )
         return UploadIntentResponse.model_validate(intent, from_attributes=True)
     except DatasetFileError as exc:
@@ -104,6 +112,7 @@ def finalize_upload(
             storage_path=request.storage_path,
             filename=request.filename,
             content_type=request.content_type,
+            privacy_attested=request.privacy_attested,
         )
     except DatasetFileError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from zubepredict_core.security import configure_log_redaction, validate_production_security
 from zubepredict_core.shared.config import get_settings
 
 from zubepredict_api.routes.account_links import router as account_links_router
@@ -10,15 +11,27 @@ from zubepredict_api.routes.decisions import router as decisions_router
 from zubepredict_api.routes.experiments import router as experiments_router
 from zubepredict_api.routes.health import router as health_router
 from zubepredict_api.routes.hermes import router as hermes_router
+from zubepredict_api.security.middleware import SecurityBoundaryMiddleware
 
 settings = get_settings()
+validate_production_security(settings)
+configure_log_redaction()
 app = FastAPI(title=settings.app_name, version="0.1.0")
+app.add_middleware(
+    SecurityBoundaryMiddleware,
+    max_request_bytes=settings.max_upload_mb * 1024 * 1024 + 64 * 1024,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        "Content-Disposition",
+        "X-ZubePredict-Artifact-SHA256",
+        "X-ZubePredict-Report-Version",
+    ],
 )
 app.include_router(health_router)
 app.include_router(analysis_router, prefix="/api/v1")

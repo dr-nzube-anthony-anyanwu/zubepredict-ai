@@ -83,7 +83,9 @@ def verify() -> None:
     if not policy.enabled or not all(
         policy.can_run("safe-owner-check", command) for command in ("zlink", "zreport")
     ):
-        raise SystemExit("Telegram command isolation failed: safe product commands are unavailable.")
+        raise SystemExit(
+            "Telegram command isolation failed: safe product commands are unavailable."
+        )
     if policy.can_run("safe-owner-check", "config"):
         raise SystemExit("Telegram command isolation failed: an admin command is user-accessible.")
     print("Resolved Telegram runtime toolsets: zubepredict only (STT config marker disabled).")

@@ -18,6 +18,7 @@ from zubepredict_api.routes.hermes import (
     confirm_constitution,
     create_constitution,
     get_experiment_evidence,
+    get_report_content_response,
     get_report_reference,
     start_experiment,
 )
@@ -240,6 +241,16 @@ def dashboard_report(
     experiment_id: UUID, report_type: ReportType, session: UserSession
 ) -> dict[str, Any]:
     return dict(get_report_reference(experiment_id, report_type, _principal(session)))
+
+
+@router.get("/experiments/{experiment_id}/reports/{report_type}/content")
+def dashboard_report_content(
+    experiment_id: UUID, report_type: ReportType, session: UserSession
+) -> Response:
+    response: Response = get_report_content_response(
+        experiment_id, report_type, _principal(session)
+    )
+    return response
 
 
 @router.post("/experiments/{experiment_id}/clarifications")

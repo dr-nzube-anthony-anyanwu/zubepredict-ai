@@ -65,6 +65,36 @@ export default function DashboardClient({
     return payload as T;
   }
 
+  async function requestArtifact(path: string): Promise<Response> {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    if (!data.session?.access_token) {
+      window.location.assign("/login");
+      throw new Error("Please sign in again before opening a report.");
+    }
+    const response = await fetch(`${apiBase()}${path}`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${data.session.access_token}` },
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const detail = payload?.detail;
+      throw new Error(
+        typeof detail === "string"
+          ? detail
+          : detail?.message || "The verified report could not be opened.",
+      );
+    }
+    return response;
+  }
+
+  function safeDownloadName(response: Response, reportType: string) {
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/i);
+    const candidate = match?.[1] || `zubepredict-${reportType.replaceAll("_", "-")}`;
+    return candidate.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 160);
+  }
+
   async function refresh() {
     const next = await request<DashboardOverview>("/dashboard/overview");
     setOverview(next);
@@ -92,18 +122,20 @@ export default function DashboardClient({
 
   async function uploadDataset(formData: FormData) {
     const file = formData.get("dataset");
+    const privacyAttested = formData.get("privacy_attested") === "on";
     if (!(file instanceof File) || !file.size || !selectedProject) return setMessage("Choose a project and a CSV or XLSX file first.");
+    if (!privacyAttested) return setMessage("Confirm the privacy and authorisation statement before uploading.");
     await perform("upload", async () => {
       const intent = await request<{ storage_path: string; upload_token: string }>("/datasets/upload-intents", {
         method: "POST",
-        body: JSON.stringify({ project_id: selectedProject, filename: file.name, content_type: file.type || "application/octet-stream" }),
+        body: JSON.stringify({ project_id: selectedProject, filename: file.name, content_type: file.type || "application/octet-stream", privacy_attested: true }),
       });
       const supabase = createClient();
       const uploaded = await supabase.storage.from("datasets").uploadToSignedUrl(intent.storage_path, intent.upload_token, file, { contentType: file.type });
       if (uploaded.error) throw new Error("The private upload failed. Please try the file again.");
       const finalized = await request<{ dataset_id: string }>("/datasets/finalize", {
         method: "POST",
-        body: JSON.stringify({ project_id: selectedProject, storage_path: intent.storage_path, filename: file.name, content_type: file.type || "application/octet-stream" }),
+        body: JSON.stringify({ project_id: selectedProject, storage_path: intent.storage_path, filename: file.name, content_type: file.type || "application/octet-stream", privacy_attested: true }),
       });
       await refresh();
       setSelectedDataset(finalized.dataset_id);
@@ -183,11 +215,39 @@ export default function DashboardClient({
   }
 
   async function downloadReport(experiment: Experiment, reportType: string) {
+    const previewTypes = new Set(["html", "pdf", "evidence_card", "model_card", "reproducibility_manifest"]);
+    const previewWindow = previewTypes.has(reportType) ? window.open("about:blank", "_blank") : null;
     await perform(`report-${experiment.id}-${reportType}`, async () => {
-      const result = await request<Record<string, unknown>>(`/dashboard/experiments/${experiment.id}/reports/${encodeURIComponent(reportType)}`);
-      const url = String(result.download_url || "");
-      if (!url) throw new Error("The temporary report is not ready.");
-      window.open(url, "_blank", "noopener,noreferrer");
+      try {
+        const response = await requestArtifact(
+          `/dashboard/experiments/${experiment.id}/reports/${encodeURIComponent(reportType)}/content`,
+        );
+        const contentType = (response.headers.get("Content-Type") || "application/octet-stream").toLowerCase();
+        const filename = safeDownloadName(response, reportType);
+        const bytes = await response.blob();
+        const objectUrl = URL.createObjectURL(new Blob([bytes], { type: contentType }));
+        const opensInline = contentType.startsWith("text/html") || contentType.startsWith("application/pdf");
+        if (opensInline && previewWindow) {
+          previewWindow.location.replace(objectUrl);
+        } else {
+          previewWindow?.close();
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.rel = "noopener noreferrer";
+          if (opensInline) link.target = "_blank";
+          else link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        }
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        setMessage(
+          opensInline ? "Opened the verified report in a new tab." : `Downloaded ${filename}.`,
+        );
+      } catch (error) {
+        previewWindow?.close();
+        throw error;
+      }
     });
   }
 
@@ -244,7 +304,7 @@ export default function DashboardClient({
               <details><summary>+ Create a new project</summary><form action={createProject} className="compact-form"><input name="name" placeholder="Project name" required maxLength={120} /><textarea name="description" placeholder="Short description (optional)" maxLength={1000} /><button disabled={busy === "project"} className="button secondary">{busy === "project" ? "Creating…" : "Create project"}</button></form></details>
             </div>
             <div className="builder-block"><span className="step">2</span><h3>Add or select data</h3><select value={selectedDataset} onChange={(event) => setSelectedDataset(event.target.value)} disabled={!project}><option value="">Choose dataset</option>{project?.datasets.map((item) => <option key={item.id} value={item.id}>{item.filename} · {item.row_count ?? "?"} rows</option>)}</select>
-              <form action={uploadDataset} className="upload-line"><input name="dataset" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /><button disabled={busy === "upload" || !selectedProject} className="button secondary">{busy === "upload" ? "Validating…" : "Upload safely"}</button></form>
+              <form action={uploadDataset} className="upload-line"><input name="dataset" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required /><label className="confirm-line"><input name="privacy_attested" type="checkbox" required /> I am authorised to use this dataset and have removed direct identifiers.</label><button disabled={busy === "upload" || !selectedProject} className="button secondary">{busy === "upload" ? "Validating…" : "Upload safely"}</button></form>
             </div>
           </div>
           {dataset && <div className="dataset-strip"><strong>{dataset.filename}</strong><span>{dataset.row_count ?? "—"} rows</span><span>{dataset.column_count ?? dataset.schema_columns.length} columns</span><span>SHA-256 verified</span><b>{readable(dataset.source_channel)}</b></div>}

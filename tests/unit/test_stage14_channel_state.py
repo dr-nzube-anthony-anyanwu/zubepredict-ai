@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from zubepredict_core.channels import telegram as telegram_module
 from zubepredict_core.channels.telegram import (
     TelegramChannelError,
     TelegramChannelService,
@@ -153,6 +155,32 @@ def test_separate_users_cannot_share_one_development_link() -> None:
 
     with pytest.raises(TelegramChannelError, match="not linked"):
         service.get_state(settings, owner_id=uuid4(), telegram_user_id="123456789")
+
+
+def test_expired_session_clears_selections_without_deleting_experiment(monkeypatch) -> None:
+    client = FakeClient()
+    service = TelegramChannelService(client)  # type: ignore[arg-type]
+    settings = Settings(
+        _env_file=None, app_env="development", telegram_session_ttl_seconds=300
+    )
+    experiment_id = str(uuid4())
+    client.tables["experiments"] = [{"id": experiment_id, "status": "running"}]
+    service.update_state(
+        settings,
+        owner_id=OWNER,
+        telegram_user_id="123456789",
+        changes={"active_experiment_id": experiment_id, "last_safe_interaction_state": "running"},
+    )
+    client.tables["telegram_channel_states"][0]["updated_at"] = "2026-08-14T00:00:00+00:00"
+    monkeypatch.setattr(telegram_module, "_now", lambda: datetime(2026, 8, 15, tzinfo=UTC))
+
+    expired = service.get_state(
+        settings, owner_id=OWNER, telegram_user_id="123456789"
+    )
+
+    assert expired["active_experiment_id"] is None
+    assert expired["last_safe_interaction_state"] == "reset"
+    assert client.tables["experiments"] == [{"id": experiment_id, "status": "running"}]
 
 
 def test_development_mapping_cannot_run_in_production() -> None:

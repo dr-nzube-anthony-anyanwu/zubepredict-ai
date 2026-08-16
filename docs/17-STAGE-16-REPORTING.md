@@ -37,7 +37,7 @@ Every newly completed Stage 16 experiment receives:
 - `zubepredict-evidence-report.html` — human-readable HTML report;
 - `zubepredict-evidence-report.pdf` — real PDF report;
 - `zubepredict-model-card.html` — styled model card;
-- `zubepredict-reproducibility-manifest.json` — configuration and integrity reference;
+- `zubepredict-reproducibility-manifest.html` — readable experiment recipe and integrity reference;
 - `zubepredict-predictions.csv` and `zubepredict-predictions.xlsx` when the task produces
   predictions, assignments or forecasts.
 
@@ -49,17 +49,17 @@ exclusions, validation strategy, primary/secondary metrics, leaderboard, selecte
 calibration/error analysis when available, limitations, intended-use warning, random seed,
 software versions and integrity reference.
 
-Human-facing report version 3 presents those same authoritative values as an executive summary,
+Human-facing report version 4 presents those same authoritative values as an executive summary,
 guided reading steps, plain-language metric explanations, a highlighted winner, cautions and
 limitations. Reproducibility, model settings and integrity identifiers are placed in clearly
 labelled expandable technical sections. It never asks a reader to interpret a Python dictionary
-or a single unbroken JSON paragraph. The raw Evidence Envelope and reproducibility manifest remain
-pretty-printed JSON because they are technical audit/interchange artifacts.
+or a single unbroken JSON paragraph. The reproducibility manifest is now a styled HTML factsheet;
+the raw Evidence Envelope remains pretty-printed JSON for technical audit/interchange use.
 Prediction Excel files add a Read me sheet, styled headings, filters, frozen headers and readable
 column widths; prediction CSV remains a standards-compatible machine-readable export.
 
-Version-1 and version-2 artifacts are immutable and are not overwritten. Restart the worker after
-updating the code and create a new synthetic experiment to receive report version 3. A future
+Version-1 through version-3 artifacts are immutable and are not overwritten. Restart the worker
+after updating the code and create a new synthetic experiment to receive report version 4. A future
 regeneration flow may create a higher report version, but it must never replace stored bytes under
 an existing version.
 
@@ -71,9 +71,14 @@ an existing version.
 - Database rows record report type/version, generic filename, MIME type, size, artifact SHA-256,
   Evidence Envelope hash and bounded generator metadata.
 - A download request must find the experiment through an owner-scoped repository.
-- The backend downloads and verifies the exact object bytes before signing access.
+- The backend downloads and verifies the exact object bytes before every delivery.
 - Path, filename, byte-size, SHA-256 or evidence-hash disagreement returns a safe integrity error.
 - Web and authenticated API calls require a valid Supabase Auth session.
+- Supabase Storage intentionally serves HTML as plain text. The dashboard therefore fetches owned,
+  verified artifact bytes through FastAPI and opens a local browser Blob with the recorded MIME
+  type. FastAPI adds no-store, nosniff, restrictive CSP, frame-denial and safe disposition headers.
+- The authenticated API exposes the same content endpoint for clients that send a valid bearer
+  token. It never exposes a service-role key or private Storage path.
 - Telegram calls require the signed Hermes request and an active numerical Telegram account link.
 - URLs expire after `HERMES_TELEGRAM_REPORT_TTL_SECONDS` (300 seconds by default).
 - Revocation prevents issuance of new Telegram report links. A link already issued remains usable
@@ -119,6 +124,12 @@ Evidence Card, predictions and reproducibility artifacts. It does not print secr
 
 Use only `sample_data\readmission_demo.csv`.
 
+After this correction, restart FastAPI and the Next.js frontend so the authenticated content route
+and Blob viewer are active. Existing version-3 HTML Report, Evidence Card and Model Card objects can
+then render through the dashboard without regeneration. Their version-3 reproducibility manifest
+remains the original JSON artifact. Restart the worker and create a new synthetic experiment when
+you want the complete version-4 bundle, including the styled HTML Reproducibility Manifest.
+
 1. Start Redis, FastAPI, worker, frontend and Hermes using the Stage 15 terminal commands.
 2. Sign in at `http://localhost:3040/dashboard`.
 3. Create a new synthetic experiment after the Stage 16 migration is applied.
@@ -126,7 +137,9 @@ Use only `sample_data\readmission_demo.csv`.
 5. Confirm the experiment row offers Evidence Card, HTML, PDF, Model Card, predictions and the
    reproducibility manifest.
 6. Click **Evidence** and note the evidence hash, selected model and primary metric.
-7. Download HTML, PDF and model card. Confirm they show the same evidence hash, model and metric.
+7. Open HTML, PDF, Evidence Card, Model Card and Reproducibility Manifest. Confirm Chrome renders
+   the human documents instead of displaying HTML source code and that they show the same evidence
+   hash, model and metric where applicable.
 8. Download CSV/XLSX. Confirm they contain synthetic prediction rows and evidence metadata.
 9. In the private linked Telegram chat ask: `Give me the PDF report for my active experiment.`
 10. Download it immediately. Confirm its report ID, SHA-256 and evidence hash match the dashboard

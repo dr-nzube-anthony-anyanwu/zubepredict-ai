@@ -88,7 +88,15 @@ class ZubePredictClient:
             raise ZubePredictAPIError(code, message, retryable=response.status_code >= 500)
         raise ZubePredictAPIError("backend_unavailable", "ZubePredict API is unavailable.")
 
-    def upload(self, path: str, *, content: bytes, filename: str, content_type: str) -> Any:
+    def upload(
+        self,
+        path: str,
+        *,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        privacy_attested: bool,
+    ) -> Any:
         request_url = f"{self.base_url}{path}"
         signature_path = urlsplit(request_url).path
         headers = self.credential.headers(
@@ -97,6 +105,7 @@ class ZubePredictClient:
             content,
             content_type=content_type.lower(),
             filename=filename,
+            privacy_attested="true" if privacy_attested else "false",
         )
         headers["Content-Type"] = content_type
         try:

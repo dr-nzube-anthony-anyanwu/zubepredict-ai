@@ -26,6 +26,7 @@ class DatasetArguments(ToolArguments):
 class UploadDatasetArguments(ToolArguments):
     project_id: UUID
     attachment_path: str = Field(min_length=1, max_length=1000)
+    privacy_attested: Literal[True]
 
 
 class TelegramLinkCodeArguments(ToolArguments):

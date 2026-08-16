@@ -23,13 +23,16 @@ class ServiceCredential:
         *,
         content_type: str = "",
         filename: str = "",
+        privacy_attested: str = "",
     ) -> dict[str, str]:
         timestamp = str(int(time.time()))
         nonce = secrets.token_urlsafe(24)
         body_hash = hashlib.sha256(body).hexdigest()
         parts = [method.upper(), path, timestamp, nonce, self.principal_id, body_hash]
-        if any((self.channel, self.channel_principal, content_type, filename)):
-            parts.extend([self.channel, self.channel_principal, content_type, filename])
+        if any((self.channel, self.channel_principal, content_type, filename, privacy_attested)):
+            parts.extend(
+                [self.channel, self.channel_principal, content_type, filename, privacy_attested]
+            )
         canonical = "\n".join(parts).encode("utf-8")
         signature = hmac.new(self.secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
         headers = {
@@ -44,4 +47,6 @@ class ServiceCredential:
             headers["X-ZubePredict-Channel-Principal"] = self.channel_principal
         if filename:
             headers["X-ZubePredict-Filename"] = filename
+        if privacy_attested:
+            headers["X-ZubePredict-Privacy-Attested"] = privacy_attested
         return headers

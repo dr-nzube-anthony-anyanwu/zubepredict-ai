@@ -110,6 +110,7 @@ def upload_dataset(args: dict[str, Any], **_: Any) -> str:
                 content=content,
                 filename=path.name,
                 content_type=content_type,
+                privacy_attested=a.privacy_attested,
             )
         finally:
             path.unlink(missing_ok=True)

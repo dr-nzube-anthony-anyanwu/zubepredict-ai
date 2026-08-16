@@ -13,6 +13,8 @@ from zubepredict_core.channels.telegram import TelegramChannelError, TelegramLin
 from zubepredict_core.repositories.supabase import create_service_session
 from zubepredict_core.shared.config import Settings, get_settings
 
+from zubepredict_api.security.quotas import enforce_user_rate
+
 _KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 _SIGNATURE_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -80,11 +82,12 @@ def canonical_request(
     channel_principal: str = "",
     content_type: str = "",
     filename: str = "",
+    privacy_attested: str = "",
 ) -> bytes:
     body_hash = hashlib.sha256(body).hexdigest()
     parts = [method.upper(), path, timestamp, nonce, principal, body_hash]
-    if any((channel, channel_principal, content_type, filename)):
-        parts.extend([channel, channel_principal, content_type, filename])
+    if any((channel, channel_principal, content_type, filename, privacy_attested)):
+        parts.extend([channel, channel_principal, content_type, filename, privacy_attested])
     return "\n".join(parts).encode("utf-8")
 
 
@@ -106,6 +109,7 @@ async def _verify_hermes_request(request: Request) -> TrustedHermesPrincipal:
     channel_principal = request.headers.get("X-ZubePredict-Channel-Principal", "").strip()
     signed_content_type = request.headers.get("Content-Type", "").strip().lower()
     signed_filename = request.headers.get("X-ZubePredict-Filename", "").strip()
+    privacy_attested = request.headers.get("X-ZubePredict-Privacy-Attested", "").strip().lower()
     supplied_signature = request.headers.get("X-ZubePredict-Signature", "").lower()
 
     if not all((key_id, timestamp_value, nonce, principal_value, supplied_signature)):
@@ -141,6 +145,7 @@ async def _verify_hermes_request(request: Request) -> TrustedHermesPrincipal:
         channel_principal=channel_principal,
         content_type=signed_content_type if signed_filename else "",
         filename=signed_filename,
+        privacy_attested=privacy_attested,
     )
     expected = sign_request(secret, canonical)
     if not hmac.compare_digest(expected, supplied_signature):
@@ -227,17 +232,20 @@ async def require_hermes_principal(request: Request) -> TrustedHermesPrincipal:
                     "Telegram account mapping is temporarily unavailable.",
                 ) from exc
             if linked_owner is not None:
-                return TrustedHermesPrincipal(
+                resolved = TrustedHermesPrincipal(
                     owner_id=linked_owner,
                     key_id=principal.key_id,
                     channel=principal.channel,
                     channel_principal=principal.channel_principal,
                 )
+                enforce_user_rate(resolved.owner_id, "hermes.request")
+                return resolved
         if _development_owner_allowed(
             settings,
             claimed_owner=principal.owner_id,
             channel_principal=principal.channel_principal,
         ):
+            enforce_user_rate(principal.owner_id, "hermes.request")
             return principal
         if settings.app_env.lower() == "production" and not secret:
             raise HTTPException(
@@ -260,4 +268,5 @@ async def require_hermes_principal(request: Request) -> TrustedHermesPrincipal:
         )
     if not hmac.compare_digest(str(principal.owner_id), settings.hermes_dev_principal_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "The trusted principal is not allowed.")
+    enforce_user_rate(principal.owner_id, "hermes.request")
     return principal

@@ -150,6 +150,9 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
         retention_status: str = "active",
         retention_expires_at: datetime | None = None,
         source_channel: str = "api",
+        privacy_attested_at: datetime | None = None,
+        deidentified_confirmed: bool = False,
+        consent_scope: str | None = None,
     ) -> DatasetRecord:
         return self._insert(
             {
@@ -168,6 +171,11 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
                 if retention_expires_at
                 else None,
                 "source_channel": source_channel,
+                "privacy_attested_at": privacy_attested_at.isoformat()
+                if privacy_attested_at
+                else None,
+                "deidentified_confirmed": deidentified_confirmed,
+                "consent_scope": consent_scope,
                 "validated_at": datetime.now(UTC).isoformat(),
             }
         )
@@ -212,6 +220,16 @@ class SupabaseDatasetRepository(_OwnedSupabaseRepository[DatasetRecord]):
             dataset_id,
             {"retention_status": status, "updated_at": datetime.now(UTC).isoformat()},
         )
+
+    def active_storage_bytes(self) -> int:
+        response = self._execute(
+            self._client.table(self.table_name)
+            .select("size_bytes")
+            .eq("owner_id", str(self._owner_id))
+            .eq("retention_status", "active"),
+            "calculate storage usage from",
+        )
+        return sum(max(0, int(item.get("size_bytes") or 0)) for item in (response.data or []))
 
 
 class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
@@ -510,6 +528,16 @@ class SupabaseExperimentRepository(_OwnedSupabaseRepository[ExperimentRecord]):
     def list_for_project(self, project_id: UUID) -> list[ExperimentRecord]:
         return self._list(project_id=project_id)
 
+    def active_count(self) -> int:
+        response = self._execute(
+            self._client.table(self.table_name)
+            .select("id")
+            .eq("owner_id", str(self._owner_id))
+            .in_("status", ["queued", "profiling", "training", "evaluating", "reporting"]),
+            "count active",
+        )
+        return len(response.data or [])
+
     def update_decision(
         self,
         experiment_id: UUID,
@@ -620,6 +648,7 @@ class SupabaseReportRepository(_OwnedSupabaseRepository[ReportRecord]):
         sha256: str | None = None,
         evidence_hash: str | None = None,
         integrity_metadata: dict[str, Any] | None = None,
+        retention_expires_at: datetime | None = None,
     ) -> ReportRecord:
         return self._insert(
             {
@@ -633,6 +662,9 @@ class SupabaseReportRepository(_OwnedSupabaseRepository[ReportRecord]):
                 "sha256": sha256,
                 "evidence_hash": evidence_hash,
                 "integrity_metadata": integrity_metadata or {},
+                "retention_expires_at": retention_expires_at.isoformat()
+                if retention_expires_at
+                else None,
             }
         )
 

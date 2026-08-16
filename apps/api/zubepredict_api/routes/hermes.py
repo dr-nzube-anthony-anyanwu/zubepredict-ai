@@ -16,6 +16,7 @@ from zubepredict_api.security.hermes import (
     require_hermes_linking_principal,
     require_hermes_principal,
 )
+from zubepredict_api.security.quotas import enforce_experiment_quota
 from zubepredict_core.channels.telegram import (
     TelegramChannelError,
     TelegramChannelService,
@@ -56,6 +57,20 @@ ReportType = Literal[
     "predictions_xlsx",
     "reproducibility_manifest",
 ]
+
+_REPORT_MEDIA_TYPES: dict[str, set[str]] = {
+    "evidence": {"application/json"},
+    "evidence_card": {"text/html"},
+    "html": {"text/html"},
+    "pdf": {"application/pdf"},
+    "model_card": {"text/html"},
+    "predictions_csv": {"text/csv"},
+    "predictions_xlsx": {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    },
+    # Version 3 and earlier used JSON. Version 4 makes the human-facing manifest HTML.
+    "reproducibility_manifest": {"application/json", "text/html"},
+}
 
 
 class StrictRequest(BaseModel):
@@ -446,6 +461,9 @@ async def upload_dataset(
     settings = get_settings()
     filename = request.headers.get("X-ZubePredict-Filename", "")
     content_type = request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    privacy_attested = (
+        request.headers.get("X-ZubePredict-Privacy-Attested", "").strip().lower() == "true"
+    )
     content_length = request.headers.get("Content-Length")
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if content_length:
@@ -478,6 +496,7 @@ async def upload_dataset(
             content_type=content_type,
             chunks=(body,),
             source_channel="telegram",
+            privacy_attested=privacy_attested,
         )
     except (DatasetFileError, DatasetLifecycleError) as exc:
         message = "That file type is not supported. Please upload CSV or XLSX."
@@ -678,6 +697,15 @@ def confirm_constitution(
         expected_version=experiment.decision_version,
         configuration={**experiment.configuration, "constitution": approved},
     )
+    repositories.audit_logs.record(
+        action="constitution.approved",
+        resource_type="experiment",
+        resource_id=updated.id,
+        metadata={
+            "constitution_version": approved["version"],
+            "source_channel": principal.channel or "api",
+        },
+    )
     _update_channel_state(
         principal,
         {
@@ -726,6 +754,7 @@ def start_experiment(
             },
         )
         return _job_payload(existing, reused=True)
+    enforce_experiment_quota(principal.owner_id, repositories)
     job_id = uuid4()
     try:
         queued = repositories.experiments.queue_constitution_job(
@@ -766,6 +795,15 @@ def start_experiment(
             "pending_clarification_id": None,
             "pending_clarification_version": None,
             "last_safe_interaction_state": "queued",
+        },
+    )
+    repositories.audit_logs.record(
+        action="experiment.started",
+        resource_type="experiment",
+        resource_id=queued.id,
+        metadata={
+            "job_id": str(job_id),
+            "source_channel": principal.channel or "api",
         },
     )
     return _job_payload(queued)
@@ -887,6 +925,12 @@ def cancel_experiment(
     if repositories.experiments.get(experiment_id) is None:
         raise _not_found("experiment")
     cancelled = repositories.experiments.request_cancel(experiment_id)
+    repositories.audit_logs.record(
+        action="experiment.cancel_requested",
+        resource_type="experiment",
+        resource_id=cancelled.id,
+        metadata={"source_channel": principal.channel or "api"},
+    )
     _update_channel_state(
         principal,
         {
@@ -1003,12 +1047,11 @@ def _verified_report_bytes(
     return content
 
 
-@router.get("/experiments/{experiment_id}/reports/{report_type}")
-def get_report_reference(
+def _resolve_verified_report(
     experiment_id: UUID,
     report_type: ReportType,
-    principal: Principal,
-) -> dict[str, Any]:
+    principal: TrustedHermesPrincipal,
+) -> tuple[ReportRecord, bytes, SupabaseRepositorySet, Any, ExperimentRecord]:
     repositories = _repositories(principal)
     experiment = repositories.experiments.get(experiment_id)
     if experiment is None:
@@ -1023,35 +1066,100 @@ def get_report_reference(
         for item in repositories.reports.list_for_experiment(experiment_id)
         if item.report_type == report_type
     ]
-    settings = get_settings()
-    session = create_service_session(settings, principal.owner_id)
-    bucket = session.client.storage.from_(settings.supabase_artifacts_bucket)
     if not matches:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {"code": "report_not_ready", "message": "The report is not ready."},
         )
-    else:
-        report = max(matches, key=lambda item: item.report_version)
+    report = max(matches, key=lambda item: item.report_version)
+    if report.retention_status != "active":
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            {"code": "report_expired", "message": "This report is no longer retained."},
+        )
+    media_type = str(report.content_type or "").split(";", 1)[0].strip().lower()
+    if media_type not in _REPORT_MEDIA_TYPES[report_type]:
+        raise _report_integrity_error()
+    settings = get_settings()
+    session = create_service_session(settings, principal.owner_id)
+    bucket = session.client.storage.from_(settings.supabase_artifacts_bucket)
+    content = _verified_report_bytes(report, experiment, principal.owner_id, bucket)
+    return report, content, repositories, bucket, experiment
+
+
+def _record_report_access(
+    repositories: SupabaseRepositorySet,
+    report: ReportRecord,
+    experiment: ExperimentRecord,
+    principal: TrustedHermesPrincipal,
+    *,
+    delivery: str,
+) -> None:
+    repositories.audit_logs.record(
+        action=f"report.{principal.channel or 'api'}_accessed",
+        resource_type="report",
+        resource_id=report.id,
+        metadata={
+            "experiment_id": str(experiment.id),
+            "delivery": delivery,
+            "report_type": report.report_type,
+            "report_version": report.report_version,
+            "sha256": report.sha256,
+        },
+    )
+
+
+def get_report_content_response(
+    experiment_id: UUID,
+    report_type: ReportType,
+    principal: TrustedHermesPrincipal,
+) -> Response:
+    """Return owned, integrity-verified bytes without exposing the private Storage URL."""
+
+    report, content, repositories, _bucket, experiment = _resolve_verified_report(
+        experiment_id, report_type, principal
+    )
+    media_type = str(report.content_type).split(";", 1)[0].strip().lower()
+    disposition = "inline" if media_type in {"text/html", "application/pdf"} else "attachment"
+    _record_report_access(
+        repositories, report, experiment, principal, delivery="authenticated_content"
+    )
+    headers = {
+        "Cache-Control": "private, no-store, max-age=0",
+        "Content-Disposition": f'{disposition}; filename="{report.filename}"',
+        "Content-Security-Policy": (
+            "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox"
+        ),
+        "Cross-Origin-Resource-Policy": "same-site",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-ZubePredict-Artifact-SHA256": str(report.sha256),
+        "X-ZubePredict-Report-Version": str(report.report_version),
+    }
+    return Response(content=content, media_type=str(report.content_type), headers=headers)
+
+
+@router.get("/experiments/{experiment_id}/reports/{report_type}")
+def get_report_reference(
+    experiment_id: UUID,
+    report_type: ReportType,
+    principal: Principal,
+) -> dict[str, Any]:
+    report, _content, repositories, bucket, experiment = _resolve_verified_report(
+        experiment_id, report_type, principal
+    )
+    settings = get_settings()
     try:
-        _verified_report_bytes(report, experiment, principal.owner_id, bucket)
         signed = bucket.create_signed_url(
             report.storage_path, settings.hermes_telegram_report_ttl_seconds
         )
         signed_url = signed.get("signedURL") or signed.get("signedUrl")
         if not signed_url:
             raise ValueError("missing signed URL")
-        repositories.audit_logs.record(
-            action=f"report.{principal.channel or 'api'}_accessed",
-            resource_type="report",
-            resource_id=report.id,
-            metadata={
-                "experiment_id": str(experiment.id),
-                "expires_in_seconds": settings.hermes_telegram_report_ttl_seconds,
-                "report_type": report.report_type,
-                "report_version": report.report_version,
-                "sha256": report.sha256,
-            },
+        _record_report_access(
+            repositories, report, experiment, principal, delivery="signed_storage_url"
         )
     except HTTPException:
         raise

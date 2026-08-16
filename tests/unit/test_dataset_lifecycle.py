@@ -218,6 +218,7 @@ def test_owned_delete_is_retained_in_audit_log(monkeypatch) -> None:
     assert finalized.dataset.id not in datasets.records
     assert storage.deleted == [intent.storage_path]
     assert [event["action"] for event in audit.events] == [
+        "dataset.web_uploaded",
         "dataset.deletion_started",
         "dataset.deleted",
     ]

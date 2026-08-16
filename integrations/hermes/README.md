@@ -97,5 +97,13 @@ Telegram runtime contains only the ZubePredict plugin schemas.
 - Telegram receives only the ZubePredict toolset; terminal/file/browser/code/cron/Git tools
   are not exposed.
 
-The replay cache is process-local in Stage 13 development. Distributed replay protection,
-production principal mapping, quotas, and full audit expansion belong to later hardening.
+Stage 17 adds distributed per-owner usage counters, production fail-closed quota checks,
+session expiry, explicit upload privacy attestation and expanded audit events. The signed-request
+nonce cache remains process-local, so a multi-instance production API must replace it with a
+shared one-use nonce store before deployment.
+
+The reviewed runtime remains pinned to v0.20.0 commit
+`3c27eb6234bf91b8ceee9e9071591b31e9b148cb`. The August 13 v0.20.1 patch contains additional
+credential and Telegram redaction hardening. Do not deploy the older pin publicly; validate the
+plugin against a current patched revision, update the documented pin deliberately, and rerun the
+complete Telegram security suite first.

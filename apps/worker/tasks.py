@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, BinaryIO, cast
@@ -557,6 +557,8 @@ class _WorkerWorkflowContext:
                         "source": "verified_evidence_envelope",
                         "job_id": str(self.job_id),
                     },
+                    retention_expires_at=datetime.now(UTC)
+                    + timedelta(days=settings.report_retention_days),
                 )
             report_manifest.append(
                 {

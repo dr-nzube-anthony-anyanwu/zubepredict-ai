@@ -51,7 +51,7 @@ class MockBackend:
             return {"experiment_id": EXPERIMENT, "state": "cancelled"}
         return {"status": "ok"}
 
-    def upload(self, path, *, content, filename, content_type):
+    def upload(self, path, *, content, filename, content_type, privacy_attested):
         self.calls.append(("UPLOAD", path, {"filename": filename, "content": content_type}))
         assert content.startswith(b"target")
         return {"dataset_id": DATASET, "dataset_fingerprint": "a" * 64, "storage": "private"}
@@ -78,7 +78,11 @@ def test_mocked_owner_only_conversation_reaches_verified_report(
     assert (
         _call(
             "zubepredict_upload_dataset",
-            {"project_id": PROJECT, "attachment_path": str(attachment)},
+            {
+                "project_id": PROJECT,
+                "attachment_path": str(attachment),
+                "privacy_attested": True,
+            },
         )["dataset_id"]
         == DATASET
     )

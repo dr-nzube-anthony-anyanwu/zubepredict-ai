@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     telegram_linking_code_ttl_seconds: int = Field(default=600, ge=60, le=1800)
     telegram_linking_max_attempts: int = Field(default=5, ge=3, le=20)
     telegram_linking_attempt_window_seconds: int = Field(default=600, ge=60, le=3600)
+    telegram_session_ttl_seconds: int = Field(default=86_400, ge=300, le=2_592_000)
 
     # Disabled aiogram fallback only. The Stage 14 primary token belongs in
     # the Hermes secret environment as TELEGRAM_BOT_TOKEN.
@@ -51,6 +52,14 @@ class Settings(BaseSettings):
     dataset_preview_rows: int = Field(default=25, ge=1, le=200)
     dataset_preview_columns: int = Field(default=25, ge=1, le=100)
     dataset_retention_days: int = Field(default=30, ge=1, le=3650)
+    report_retention_days: int = Field(default=30, ge=1, le=3650)
+    require_dataset_privacy_attestation: bool = False
+    user_api_requests_per_minute: int = Field(default=120, ge=10, le=10_000)
+    user_uploads_per_day: int = Field(default=20, ge=1, le=10_000)
+    user_storage_quota_mb: int = Field(default=500, ge=10, le=1_000_000)
+    user_experiments_per_day: int = Field(default=20, ge=1, le=10_000)
+    user_concurrent_experiments: int = Field(default=2, ge=1, le=100)
+    quota_fail_closed: bool = True
     training_timeout_seconds: int = Field(default=600, ge=10, le=86_400)
     max_candidate_models: int = Field(default=5, ge=1, le=20)
     max_optuna_trials: int = Field(default=10, ge=1, le=1_000)
@@ -77,6 +86,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def user_storage_quota_bytes(self) -> int:
+        return self.user_storage_quota_mb * 1024 * 1024
 
 
 @lru_cache

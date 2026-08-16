@@ -7,11 +7,17 @@ $ErrorActionPreference = "Stop"
 $envFile = Join-Path $HermesHome ".env"
 $hermes = Join-Path $HermesHome "hermes-agent\venv\Scripts\hermes.exe"
 $python = Join-Path $HermesHome "hermes-agent\venv\Scripts\python.exe"
+$hermesRepository = Join-Path $HermesHome "hermes-agent"
+$expectedRevision = "3c27eb6234bf91b8ceee9e9071591b31e9b148cb"
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Hermes secret environment file is missing. Follow docs/15-STAGE-14-TELEGRAM.md."
 }
 if (-not (Test-Path -LiteralPath $hermes -PathType Leaf)) {
     throw "Hermes Agent is not installed in the expected managed location."
+}
+$actualRevision = (& git -C $hermesRepository rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualRevision -ne $expectedRevision) {
+    throw "Telegram startup stopped safely: Hermes revision does not match the reviewed pin."
 }
 
 # Load simple KEY=VALUE entries only. Values are never emitted.
@@ -37,6 +43,10 @@ foreach ($name in $required) {
     if ([string]::IsNullOrWhiteSpace((Get-Item -Path "Env:$name" -ErrorAction SilentlyContinue).Value)) {
         throw "Telegram startup stopped safely because $name is missing."
     }
+}
+$runtimeEnvironment = $env:ZUBEPREDICT_ENV.Trim().ToLowerInvariant()
+if ($runtimeEnvironment -notin @("development", "staging", "production")) {
+    throw "Telegram startup stopped safely: ZUBEPREDICT_ENV must be explicit."
 }
 
 $owner = $env:ZUBEPREDICT_TELEGRAM_OWNER_ID.Trim()

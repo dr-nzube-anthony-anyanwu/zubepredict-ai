@@ -46,6 +46,11 @@ class FakeExperiments:
 class FakeRepositories:
     def __init__(self) -> None:
         self.experiments = FakeExperiments()
+        self.audit_logs = self
+        self.audit_events: list[dict[str, object]] = []
+
+    def record(self, **event: object) -> None:
+        self.audit_events.append(event)
 
 
 def test_start_is_idempotent_and_sends_identifiers_only(monkeypatch) -> None:
@@ -70,6 +75,7 @@ def test_start_is_idempotent_and_sends_identifiers_only(monkeypatch) -> None:
     assert second["reused"] is True
     assert repositories.experiments.queue_count == 1
     assert len(sent) == 1
+    assert [event["action"] for event in repositories.audit_events] == ["experiment.started"]
     assert sent[0][0] == str(EXPERIMENT)
     assert sent[0][1] == str(OWNER)
     assert second_response.status_code == 200

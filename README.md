@@ -5,10 +5,13 @@ tabular datasets, validates and profiles them, determines an appropriate machine
 task, blocks unsafe leakage patterns, compares suitable models, persists reproducible
 evidence, and pauses for human clarification when a decision cannot be made safely.
 
-The repository currently implements Stages 0 through 16 of the project roadmap. Stage 15
-adds the authenticated Next.js workspace, Supabase Auth SSR sessions, one-time Telegram
-account linking, revocation, and shared cross-channel projects, datasets, experiments,
-evidence and reports. Stage 14's private owner smoke test passed before Stage 15 began.
+The repository currently implements Stages 0 through 17 of the project roadmap. The authenticated
+Next.js dashboard and Hermes Telegram agent share the same owner-scoped projects, datasets,
+experiments, evidence and reports. Stage 16 generates one authoritative, versioned artifact bundle
+for every channel. Stage 17 adds distributed quotas, privacy attestation, retention controls,
+security logging and a production security gate. Stages 14 and 15 passed their private owner smoke
+tests; the complete Stage 17 automated regression passed locally. The Stage 17 database migration
+is still local-only, and no public deployment has been performed.
 
 For the engineering history, corrections, current stopping point, and instructions for a
 future Codex session, read [IMPLEMENTATION.md](IMPLEMENTATION.md) before making changes.
@@ -259,6 +262,16 @@ Never commit `.env` or paste its values into documentation, issues, prompts, or 
 | `HERMES_TELEGRAM_OWNER_ID` | Numerical owner ID verified by FastAPI | Stage 14 backend |
 | `HERMES_TELEGRAM_REPORT_TTL_SECONDS` | Temporary report URL lifetime | Stage 14 backend |
 | `TELEGRAM_LINKING_CODE_SECRET` | Server-only one-time link-code HMAC key | Stage 15 linking |
+| `TELEGRAM_SESSION_TTL_SECONDS` | Clears stale Telegram selections only | Stage 17 |
+| `USER_API_REQUESTS_PER_MINUTE` | Per-owner API/Hermes rate cap | Stage 17 |
+| `USER_UPLOADS_PER_DAY` | Per-owner completed upload cap | Stage 17 |
+| `USER_STORAGE_QUOTA_MB` | Private active dataset byte cap | Stage 17 |
+| `USER_EXPERIMENTS_PER_DAY` | Per-owner experiment-start cap | Stage 17 |
+| `USER_CONCURRENT_EXPERIMENTS` | Active job cap; align database policy | Stage 17 |
+| `DATASET_RETENTION_DAYS` | Age threshold for eligible private dataset cleanup | Stage 17 |
+| `REPORT_RETENTION_DAYS` | Age threshold for eligible private report cleanup | Stage 17 |
+| `REQUIRE_DATASET_PRIVACY_ATTESTATION` | Explicit upload privacy boundary | Production: `true` |
+| `QUOTA_FAIL_CLOSED` | Reject mutations when distributed limits fail | Production: `true` |
 | `OLLAMA_BASE_URL` | Local Ollama-compatible endpoint | Only when selected |
 | `TELEGRAM_BOT_TOKEN` | Disabled aiogram fallback only in project `.env` | Leave blank with Hermes |
 | `NEXT_PUBLIC_API_BASE_URL` | Browser-visible API URL | Frontend integration |
@@ -328,6 +341,13 @@ The ordered migrations are:
 3. `20260809025738_async_experiment_jobs.sql`
 4. `20260809045626_langgraph_workflow_checkpoints.sql`
 5. `20260812132803_stage14_telegram_channel_state.sql`
+6. `20260814124755_stage15_unified_dashboard_linking.sql`
+7. `20260814165227_stage16_versioned_report_artifacts.sql`
+8. `20260815002438_stage17_security_quotas_retention.sql`
+
+The hosted development project is currently aligned through migration 7. Migration 8 has passed
+the disposable local PostgreSQL validator but must still be reviewed and pushed by the owner before
+any live Stage 17 smoke test. A local validation pass is not evidence that the hosted schema changed.
 
 If an older migration was previously executed manually in the SQL editor but is missing
 from CLI history, do not replay it blindly. Confirm the schema exists, then use
@@ -486,6 +506,19 @@ cd apps\web
 npm run build
 ```
 
+Run the Stage 17 repository/security and migration gates from the repository root:
+
+```powershell
+.\scripts\security-scan.ps1
+.\scripts\validate-supabase-migration.ps1
+```
+
+The last complete local Stage 17 verification recorded **233 passing pytest tests**, passing Ruff,
+passing mypy across 69 source files, a passing Next.js 15.5.23 production build, a passing disposable
+Stage 2–17 PostgreSQL chain, zero npm/Python advisory findings, and a passing workspace secret/state
+scan. Trivy was unavailable, so `security-scan.ps1 -RequireTrivy` and a fresh non-root Docker image
+build remain mandatory deployment gates rather than claimed passes.
+
 Run the focused, no-paid-LLM Stage 13 gate:
 
 ```powershell
@@ -578,25 +611,35 @@ There is no `web` service in `compose.yaml`. Build the frontend with `npm run bu
 - Report artifacts are generated once from Evidence Envelope v2, privately stored with version,
   byte-size, SHA-256 and evidence-hash metadata, then shared unchanged across web, Telegram and
   authenticated API access.
-- Human-facing report version 3 provides a styled HTML/PDF Evidence Report, a concise HTML EyeCare
-  Evidence Card, a plain-language HTML Model Card and a formatted prediction workbook. Guided
-  explanations lead the reader while technical audit sections remain expandable. Technical JSON
-  artifacts stay pretty-printed for audit/interchange use, and old report versions remain immutable.
+- Human-facing report version 4 provides a styled HTML/PDF Evidence Report, a concise HTML EyeCare
+  Evidence Card, a plain-language HTML Model Card, a readable HTML Reproducibility Manifest and a
+  formatted prediction workbook. The authenticated dashboard serves verified HTML bytes through
+  FastAPI because Supabase Storage intentionally returns HTML as plain text. Guided explanations
+  lead the reader while technical sections remain expandable; old report versions stay immutable.
 - Report links are owned, audited, generic, and expire after a bounded short interval.
+- Stage 17 enforces per-owner API/upload/experiment counters through Redis, private retained-byte
+  limits, database-serialized concurrent experiment limits, production fail-closed behavior and
+  bounded Telegram session state.
+- Customer uploads carry an explicit authorisation/de-identification attestation when the
+  production privacy gate is enabled. This attestation never substitutes for governance review.
+- Dataset and report retention metadata is enforced through a dry-run-first, audited private
+  deletion workflow. Legal-hold records are excluded from automated deletion.
+- Common secrets are redacted from structured logs, Hermes/conversation state is excluded from
+  Git and Docker contexts, and a local security scan checks secret boundaries and dependencies.
 
 ## Known limitations and roadmap
 
-Completed in code and automated verification: Stages 0 through 16. The Stage 16 remote migration
-and private cross-channel artifact smoke test are documented in `docs/17-STAGE-16-REPORTING.md`.
+Completed in code and automated verification: Stages 0 through 17. Stage 17 is implemented locally;
+its migration and manual production-only checklist have not been applied to public infrastructure.
 
 Not yet completed:
 
-- Stage 17: production quotas, retention automation, and security hardening.
 - Stage 18: demonstration deployment and operational monitoring.
 
 Production identity scaling beyond the current private owner gateway, shared replay protection,
-quotas and hardening remain later work. Render configuration is a restricted demo starting
-point, not a production deployment. No public Stage 15 deployment was performed.
+patched-Hermes compatibility validation and operational monitoring remain later work. The pinned
+Hermes v0.20.0 must not be publicly deployed until a patched revision is revalidated and pinned.
+Render configuration is a restricted demo starting point. No public deployment was performed.
 
 ## Additional documentation
 
@@ -609,6 +652,7 @@ point, not a production deployment. No public Stage 15 deployment was performed.
 - `docs/15-STAGE-14-TELEGRAM.md`
 - `docs/16-STAGE-15-DASHBOARD.md`
 - `docs/17-STAGE-16-REPORTING.md`
+- `docs/18-STAGE-17-SECURITY.md`
 - `integrations/hermes/README.md`
 - `docs/codex-prompts/00-MASTER-PROMPT.md`
 - `IMPLEMENTATION.md`

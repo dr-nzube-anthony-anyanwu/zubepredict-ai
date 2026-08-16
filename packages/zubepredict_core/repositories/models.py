@@ -36,6 +36,9 @@ class DatasetRecord(RepositoryRecord):
     retention_expires_at: datetime | None = None
     validated_at: datetime | None = None
     updated_at: datetime | None = None
+    privacy_attested_at: datetime | None = None
+    deidentified_confirmed: bool = False
+    consent_scope: str | None = None
 
 
 class ExperimentRecord(RepositoryRecord):
@@ -95,6 +98,9 @@ class ReportRecord(RepositoryRecord):
     sha256: str | None = None
     evidence_hash: str | None = None
     integrity_metadata: dict[str, Any] = Field(default_factory=dict)
+    retention_status: str = "active"
+    retention_expires_at: datetime | None = None
+    deleted_at: datetime | None = None
 
 
 class AuditLogRecord(BaseModel):

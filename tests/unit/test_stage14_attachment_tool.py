@@ -17,13 +17,22 @@ class UploadClient:
     fail = False
     calls: list[dict[str, Any]] = []
 
-    def upload(self, path: str, *, content: bytes, filename: str, content_type: str):
+    def upload(
+        self,
+        path: str,
+        *,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        privacy_attested: bool,
+    ):
         self.calls.append(
             {
                 "path": path,
                 "content": content,
                 "filename": filename,
                 "content_type": content_type,
+                "privacy_attested": privacy_attested,
             }
         )
         if self.fail:
@@ -58,7 +67,9 @@ def test_valid_cached_csv_transfers_and_cleans_up(monkeypatch, tmp_path) -> None
     _configure(monkeypatch, root)
 
     result = json.loads(
-        tools.upload_dataset({"project_id": PROJECT, "attachment_path": str(attachment)})
+        tools.upload_dataset(
+            {"project_id": PROJECT, "attachment_path": str(attachment), "privacy_attested": True}
+        )
     )
 
     assert result["ok"] is True
@@ -76,7 +87,9 @@ def test_interrupted_transfer_still_cleans_gateway_copy(monkeypatch, tmp_path) -
     UploadClient.fail = True
 
     result = json.loads(
-        tools.upload_dataset({"project_id": PROJECT, "attachment_path": str(attachment)})
+        tools.upload_dataset(
+            {"project_id": PROJECT, "attachment_path": str(attachment), "privacy_attested": True}
+        )
     )
 
     assert result["ok"] is False
@@ -94,10 +107,18 @@ def test_malicious_path_and_wrong_extension_are_rejected(monkeypatch, tmp_path) 
     _configure(monkeypatch, root)
 
     escaped = json.loads(
-        tools.upload_dataset({"project_id": PROJECT, "attachment_path": str(outside)})
+        tools.upload_dataset(
+            {"project_id": PROJECT, "attachment_path": str(outside), "privacy_attested": True}
+        )
     )
     wrong = json.loads(
-        tools.upload_dataset({"project_id": PROJECT, "attachment_path": str(unsupported)})
+        tools.upload_dataset(
+            {
+                "project_id": PROJECT,
+                "attachment_path": str(unsupported),
+                "privacy_attested": True,
+            }
+        )
     )
 
     assert escaped["ok"] is False
@@ -115,7 +136,9 @@ def test_oversized_attachment_is_rejected_before_transfer(monkeypatch, tmp_path)
     _configure(monkeypatch, root)
 
     result = json.loads(
-        tools.upload_dataset({"project_id": PROJECT, "attachment_path": str(attachment)})
+        tools.upload_dataset(
+            {"project_id": PROJECT, "attachment_path": str(attachment), "privacy_attested": True}
+        )
     )
 
     assert result["ok"] is False

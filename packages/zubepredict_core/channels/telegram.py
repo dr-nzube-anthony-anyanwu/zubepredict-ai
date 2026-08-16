@@ -93,6 +93,36 @@ class TelegramChannelService(_ServerTableService):
         )
         state = self._one(response)
         if state is not None:
+            updated_at = state.get("updated_at")
+            try:
+                last_active = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                last_active = datetime.min.replace(tzinfo=UTC)
+            if last_active <= _now() - timedelta(seconds=settings.telegram_session_ttl_seconds):
+                expired = self._safe_execute(
+                    self._client.table("telegram_channel_states")
+                    .update(
+                        {
+                            "selected_project_id": None,
+                            "selected_dataset_id": None,
+                            "active_experiment_id": None,
+                            "pending_clarification_id": None,
+                            "pending_clarification_version": None,
+                            "constitution_id": None,
+                            "constitution_version": None,
+                            "approval_status": "none",
+                            "last_safe_interaction_state": "reset",
+                            "updated_at": _now().isoformat(),
+                        }
+                    )
+                    .eq("id", str(state["id"]))
+                    .eq("owner_id", str(owner_id)),
+                    "expire channel state",
+                )
+                refreshed = self._one(expired)
+                if refreshed is None:
+                    raise TelegramChannelError("Telegram persistence expired no channel state.")
+                return refreshed
             return state
         inserted = self._safe_execute(
             self._client.table("telegram_channel_states").insert(

@@ -7,8 +7,13 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from zubepredict_api.routes.hermes import ReportType, get_report_reference
+from zubepredict_api.routes.hermes import (
+    ReportType,
+    get_report_content_response,
+    get_report_reference,
+)
 from zubepredict_api.security.hermes import TrustedHermesPrincipal
+from zubepredict_api.security.quotas import enforce_experiment_quota, enforce_user_rate
 from zubepredict_core.repositories.models import ExperimentRecord
 from zubepredict_core.repositories.supabase import (
     AuthenticatedSupabaseSession,
@@ -62,7 +67,9 @@ def _session(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "A bearer access token is required.")
     try:
-        return create_authenticated_session(get_settings(), credentials.credentials)
+        session = create_authenticated_session(get_settings(), credentials.credentials)
+        enforce_user_rate(session.user_id)
+        return session
     except SupabaseConfigurationError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     except SupabaseRepositoryError as exc:
@@ -111,6 +118,8 @@ def create_job(
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         return _response(existing, reused=True)
+
+    enforce_experiment_quota(session.user_id, trusted)
 
     job_id = uuid4()
     try:
@@ -177,6 +186,26 @@ def get_authenticated_report(
             ),
         )
     )
+
+
+@router.get("/{experiment_id}/reports/{report_type}/content")
+def get_authenticated_report_content(
+    experiment_id: UUID,
+    report_type: ReportType,
+    session: Annotated[AuthenticatedSupabaseSession, Depends(_session)],
+) -> Response:
+    """Stream the same verified bytes with browser-safe response headers."""
+
+    response: Response = get_report_content_response(
+        experiment_id,
+        report_type,
+        TrustedHermesPrincipal(
+            owner_id=session.user_id,
+            key_id="authenticated-api",
+            channel="api",
+        ),
+    )
+    return response
 
 
 @router.post(

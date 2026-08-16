@@ -14,7 +14,7 @@ Before changing this repository:
 1. Read `README.md` completely.
 2. Read this `IMPLEMENTATION.md` completely.
 3. Inspect the files directly related to the requested change.
-4. Treat Stages 0 through 16 as an existing working baseline; do not rebuild them from
+4. Treat Stages 0 through 17 as an existing working baseline; do not rebuild them from
    scratch or silently weaken their tests.
 5. Preserve Python 3.11, backend port 8040, and frontend port 3040 unless the owner
    explicitly requests a change.
@@ -32,35 +32,38 @@ Before changing this repository:
 
 ## Current project status
 
-Last updated: 2026-08-15.
+Last updated: 2026-08-16.
 
-Current stopping point: **Stage 16 implementation and remote migration are complete. The initial
-owner smoke reached artifact review, where the owner found the original PDF/HTML output too
-JSON-like. Human-facing report version 3 has now been implemented and verified locally. The owner
-must restart the worker, create a new synthetic experiment, and repeat the artifact-presentation
-portion of `docs/17-STAGE-16-REPORTING.md`. Do not begin Stage 17 without explicit approval.**
+Current stopping point: **Stage 17 security/privacy/quota hardening is implemented and locally
+verified. The Stage 17 migration exists locally but has not been pushed to the hosted Supabase
+project. No public deployment was performed. Do not begin Stage 18 without explicit approval.**
 
 The product now includes the backend/ML/orchestration foundation, hardened local
 Hermes/OpenRouter Telegram boundary, authenticated Next.js dashboard, secure one-time account
-linking, and one backend-generated versioned report bundle shared by every channel. Production
-identity/replay controls, quotas/retention hardening, and deployment remain future stages.
+linking, one backend-generated versioned report bundle shared by every channel, distributed
+per-owner quotas, privacy attestation, retention execution and a production security gate.
+Multi-instance replay protection, patched-Hermes revalidation and deployment remain future work.
 
 Current runtime state at the last verification:
 
-- FastAPI is running locally on `127.0.0.1:8040`; `/health` and `/openapi.json` return HTTP 200.
-- The temporary Stage 15 frontend verification process was stopped; port 3040 is not listening.
-- No Docker containers intentionally left running.
-- Existing API and Hermes processes were left untouched. The gateway must be restarted by the
-  owner before the Stage 15 manual smoke so the running process loads plugin v0.3.0.
+- Stage 17 did not start FastAPI, Next.js, the worker or Hermes. The disposable PostgreSQL migration
+  validator removes its container in cleanup; no Stage 17 service is intentionally left running.
 - The local project `.venv` reports Python 3.11.0.
 - Hermes Agent v0.20.0 (2026.8.3) is installed at pinned commit
   `3c27eb6234bf91b8ceee9e9071591b31e9b148cb` with managed Python 3.11.0.
-- API and worker Docker images build successfully.
+- API and worker Docker images built successfully through Stage 16. The Stage 17 non-root rebuild
+  was attempted twice but the Docker client hung past the verification timeout; both exact client
+  processes were stopped and no containers were left running.
 - The hosted Supabase database supports the live Stage 14 owner flow; no secret values or
   signed report URLs are recorded in this file.
 - The Supabase project is linked locally under `infrastructure/supabase`.
 - Supabase migration history is aligned remotely through Stage 16, including
   `20260814165227_stage16_versioned_report_artifacts.sql`.
+- Stage 17 migration `20260815002438_stage17_security_quotas_retention.sql` is local-only pending
+  owner-reviewed staging/remote push.
+- The tracked Hermes plugin manifest is v0.4.0. Because Stage 17 changed plugin/runtime policy files,
+  refresh the installed plugin configuration before the next live Telegram verification; do not
+  assume the managed Hermes copy already contains uncommitted workspace changes.
 
 Latest complete regression evidence:
 
@@ -69,15 +72,15 @@ Latest complete regression evidence:
 - The first Stage 14 security/integration slice passed 40 tests. After the final exact report-link
   delivery and early trusted-principal corrections, the full regression passed 199 tests.
 - The final Stage 15 regression passed **214 pytest tests**.
-- The final Stage 16 report-version-3 regression passed **223 pytest tests**; Ruff passed, mypy
+- The final Stage 16 report-version-4 delivery regression passed **225 pytest tests**; Ruff passed, mypy
   passed across 48 source files, Next.js 15.5.23 production build passed, and the disposable
   PostgreSQL migration chain passed with 14 RLS policies and seven report-integrity columns.
-- Ruff passed for API, core packages, Hermes plugin and tests.
-- mypy passed across **47** API/core source files; the plugin is covered by Ruff and focused tests.
-- Next.js 15.5.23 production build and TypeScript validation passed for the landing, login,
-  callback and protected dashboard routes.
-- Final npm audit reported **0 vulnerabilities** after the narrow PostCSS/Sharp overrides.
-- API and worker Docker builds passed.
+- The final Stage 17 regression passed **233 pytest tests**; Ruff passed; mypy passed across 69
+  source files; the Next.js production build passed; and the disposable migration chain passed
+  with 14 RLS policies, seven report-integrity columns, six privacy/retention columns, every public
+  table RLS-enabled and both atomic quota triggers present.
+- `npm audit` and the isolated Python `pip-audit` both reported **0 known vulnerabilities**. The
+  workspace secret/state scan passed. Trivy was unavailable and remains mandatory before deployment.
 - Official Hermes discovery loaded 13 native ZubePredict tools before Stage 14. After the
   Stage 14 reinstall, Hermes discovery verified the enabled v0.2.0 plugin with 16 tools,
   the workflow skill, pre-LLM hook and exact report-output transform hook. The focused
@@ -209,6 +212,12 @@ The current ordered migration history is:
 | `20260809025738` | Durable asynchronous experiment jobs |
 | `20260809045626` | LangGraph checkpoints and pending writes |
 | `20260812132803` | Telegram account links, resumable state and one-time linking codes |
+| `20260814124755` | Unified dashboard source metadata and Telegram linking attempts |
+| `20260814165227` | Versioned channel-independent report artifacts and integrity metadata |
+| `20260815002438` | Security limits, privacy attestations, retention metadata and quota triggers |
+
+The hosted development project is aligned through `20260814165227`. The Stage 17 migration
+`20260815002438` is present and locally validated but has not been applied remotely.
 
 The base schema is intentionally stored separately as
 `infrastructure/supabase/001_initial_schema.sql`. A new project must execute that file once
@@ -609,8 +618,36 @@ usability issue recorded below. No public deployment was performed and Stage 17 
   passed across 48 source files; all generated HTML documents had one valid head/body structure
   and no detected mojibake markers; desktop and narrow-screen synthetic renders were inspected.
 
-No public deployment was performed and Stage 17 was not started. The corrected version-3 HTML
-presentation still requires the owner's real cross-channel smoke before the manual gate is complete.
+That version-3 correction was not sufficient in the real dashboard: the later browser-delivery
+check below identified a platform delivery behavior that template inspection had not reproduced.
+No public deployment was performed and Stage 17 was not started.
+
+#### Stage 16 browser-delivery correction — report version 4
+
+- The owner's version-3 files contained the intended CSS and plain-language design, but Chrome
+  displayed their source code. Official Supabase documentation confirmed the root cause: Storage
+  intentionally returns HTML files as plain text for security. More template styling alone could
+  never fix the signed-Storage-URL behavior.
+- Added authenticated report-content routes for the web dashboard and bearer-authenticated API.
+  They enforce owner lookup, completed status, report-type/MIME allowlists, safe paths and names,
+  byte size, artifact SHA-256 and Evidence Envelope hash before returning any bytes.
+- Human HTML/PDF responses use the recorded MIME type with private no-store caching, nosniff,
+  restrictive Content Security Policy, frame denial, no-referrer and safe inline disposition.
+  Other formats retain attachment delivery. The dashboard fetches these verified bytes with the
+  user's Supabase access token and opens HTML/PDF as browser Blob documents.
+- Bumped newly generated artifacts to report version 4. The Reproducibility Manifest is now a
+  styled HTML factsheet with a plain-language purpose, three-step reading guide, run summary,
+  artifact policy, boundaries and expandable technical recipe. The Evidence Envelope remains the
+  immutable JSON interchange artifact.
+- Added CSP metadata to every generated HTML artifact so the restrictions remain effective when
+  the dashboard opens a Blob URL. No script, remote resource, form or unescaped evidence value is
+  allowed in those documents.
+- Verification: 225 pytest tests passed; Ruff passed; mypy passed across 48 source files; the
+  Next.js 15.5.23 production build passed; the authenticated-content/MIME mismatch tests passed;
+  and all four version-4 human HTML artifacts were visually inspected as rendered pages.
+
+No public deployment was performed. The owner subsequently accepted the corrected report
+presentation and explicitly approved Stage 17, so this Stage 16 manual gate is complete.
 
 ## Corrections, mistakes, and lessons learned
 
@@ -810,6 +847,57 @@ checks RLS policy creation, and removes the container in cleanup.
 Live smoke scripts create temporary Auth users and data and attempt cleanup. They must run
 only against the intended development project and should never print credentials.
 
+## Stage 17 — security, privacy, quotas and Hermes hardening
+
+Stage 17 was explicitly approved on 2026-08-15 and completed without public deployment.
+
+Implemented:
+
+- Kept Hermes core unmodified and pinned local startup to v0.20.0 commit
+  `3c27eb6234bf91b8ceee9e9071591b31e9b148cb`; the wrapper now refuses revision drift.
+- Reviewed the official Hermes release/security material. v0.20.1 post-dates the pin and includes
+  credential-surface, Telegram token-redaction and request-size hardening. Production deployment is
+  blocked until a patched revision is compatibility-tested and deliberately re-pinned.
+- Preserved the exact Telegram-only ZubePredict toolset and pre-LLM numerical allowlist/group
+  denial. Trusted owner identity still comes only from gateway metadata and signed headers.
+- Added Redis-backed per-owner API/Hermes, upload and daily experiment counters. Production quota
+  backend failure is fail-closed; process-local fallback is development-only.
+- Added retained-byte and active-experiment checks in the application plus Postgres advisory-lock
+  triggers for race-safe storage/concurrency caps.
+- Added explicit web and Telegram upload privacy attestation. When the production flag is enabled,
+  upload cannot begin without confirmation of authorisation and removal of direct identifiers.
+- Added bounded Telegram selection expiry. Expiry clears only conversation selections and never
+  deletes or restarts backend experiments.
+- Added report retention state, private dataset/report sweep indexes and a dry-run-first retention
+  executor with an exact destructive confirmation phrase, failure rollback and audit events.
+- Expanded audit coverage for web uploads, Constitution approval, experiment starts/cancellation
+  and report access. Customer audit rows remain append-protected.
+- Added request-size/security-header middleware, structured secret/JWT redaction, non-root Python
+  containers and Git/Docker exclusions for Hermes runtime/conversation state.
+- Added a security scan for tracked secrets/runtime state, frontend secret names, Python dependency
+  consistency, npm advisories and optional/production-required Trivy scanning.
+- Added `docs/18-STAGE-17-SECURITY.md` with credential-rotation incident procedures, privacy and
+  consent boundaries, retention operation and the production checklist.
+
+Correction discovered during implementation:
+
+- The official Hermes v0.20.1 release appeared after the Stage 13 pin and contains a large security
+  rollup. Silently upgrading would invalidate the tested plugin contract, while deploying v0.20.0
+  would ignore known hardening. The safe decision is to keep local compatibility pinned and make
+  patched-revision revalidation a blocking production checklist item.
+- Application-only concurrent-job counting had a race between simultaneous requests. The Stage 17
+  migration adds an owner-scoped PostgreSQL advisory lock and trigger so the authoritative limit is
+  serialized at the database boundary as well.
+
+No secrets were rotated by Codex because credential rotation is a manual account-owner action.
+No retention deletion was executed. No migration was pushed remotely.
+
+Verification: 233 tests, Ruff and mypy passed; Next.js production build passed; the complete
+Stage 2–17 disposable PostgreSQL chain passed; npm and Python advisory audits found zero known
+vulnerabilities; and the local secret/state scan passed. Trivy was not installed. The non-root
+Docker rebuild hung beyond the timeout and was cancelled cleanly, so image build/scan remains a
+manual production-gate item rather than a claimed pass.
+
 ## Configuration and secrets boundary
 
 Safe to document:
@@ -837,8 +925,8 @@ provider dashboard. Do not ask them to paste it into chat.
 
 ## Known limitations at the stopping point
 
-- The real authenticated Stage 15 browser/linking smoke remains an owner-only manual gate because
-  credentials and one-time codes must not be shared with Codex.
+- The owner reported that the authenticated Stage 15 dashboard/linking and cross-channel checks
+  passed. Secrets and one-time codes remain owner-operated and must never be shared with Codex.
 - The aiogram Telegram starter remains only as an explicitly disabled fallback. The primary
   Stage 14 route is the official Hermes Telegram gateway.
 - The current local Hermes gateway remains owner-only. The database-backed linking mapper is
@@ -855,8 +943,14 @@ provider dashboard. Do not ask them to paste it into chat.
 - Signed report URLs cannot be individually revoked after issuance by this application; revoking
   Telegram blocks new links, while an already-issued link remains usable until its five-minute
   expiry. This is why the TTL stays short.
-- Production rate limiting, storage/job quotas, automatic retention execution, dependency
-  scanning, and administrative controls remain Stage 17.
+- Redis quota enforcement is distributed, but the signed Hermes nonce cache remains process-local;
+  multiple API instances require a shared atomic nonce store.
+- Hermes v0.20.0 is behind the current v0.20.1 security rollup. It remains local-only until the
+  plugin is tested and re-pinned against a patched release.
+- Trivy was not installed during local verification. Container/image scanning is an explicit
+  production blocker; npm audit completed separately with zero vulnerabilities.
+- Retention execution is implemented but intentionally unscheduled. Staging deletion/restore,
+  legal-hold and backup-retention exercises must precede scheduling.
 - Render configuration is a restricted demonstration starting point; continuous reliable
   worker hosting and production monitoring are not complete.
 - No claim has been made that model outputs are suitable for high-stakes decisions.
@@ -865,13 +959,12 @@ provider dashboard. Do not ask them to paste it into chat.
 
 ## Next planned work
 
-The next roadmap item is **Stage 17 — security, quotas and retention hardening**. Do not begin it
-until the owner completes the corrected private artifact smoke test and explicitly approves Stage
-17.
+The next roadmap item is **Stage 18 — restricted demonstration deployment and operational
+monitoring**. Do not begin it until the owner has reviewed the Stage 17 manual security actions and
+explicitly approves Stage 18.
 
 Later stages remain:
 
-- Stage 17: security, quotas, and retention hardening.
 - Stage 18: restricted demonstration deployment.
 
 ## Handoff checklist

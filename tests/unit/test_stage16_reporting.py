@@ -87,7 +87,7 @@ def test_bundle_contains_required_authoritative_artifacts_and_fields() -> None:
     by_type = {item.report_type: item for item in reports}
 
     assert set(by_type) == required_report_types(predictions_available=True)
-    assert {item.report_version for item in reports} == {3}
+    assert {item.report_version for item in reports} == {4}
     assert by_type["pdf"].content.startswith(b"%PDF")
     assert b"ZubePredict AI Evidence Report" in by_type["html"].content
     assert b"What this result says" in by_type["html"].content
@@ -114,20 +114,21 @@ def test_bundle_contains_required_authoritative_artifacts_and_fields() -> None:
     assert b"Show technical traceability details" in card.content
     assert b"Logistic Regression" in card.content
     assert evidence.evidence_hash.encode() in card.content
-    for human_facing in (by_type["html"], by_type["model_card"], card):
+    manifest = by_type["reproducibility_manifest"]
+    assert manifest.filename == "zubepredict-reproducibility-manifest.html"
+    assert manifest.content_type == "text/html; charset=utf-8"
+    assert b"Reproducibility Manifest" in manifest.content
+    assert b"Why this document exists" in manifest.content
+    assert b"Show software versions" in manifest.content
+    assert b"Generated once from the verified evidence envelope" in manifest.content
+    assert str(EXPERIMENT).encode() in manifest.content
+    assert evidence.dataset_fingerprint.encode() in manifest.content
+    assert evidence.evidence_hash.encode() in manifest.content
+
+    for human_facing in (by_type["html"], by_type["model_card"], card, manifest):
+        assert b"Content-Security-Policy" in human_facing.content
         assert b"\xc3\x82" not in human_facing.content
         assert b"\xc3\xa2\xe2\x82\xac" not in human_facing.content
-
-    manifest = json.loads(by_type["reproducibility_manifest"].content)
-    assert manifest["constitution_version"] == 3
-    assert manifest["task"] == "binary_classification"
-    assert manifest["target"] == "readmitted"
-    assert manifest["exclusions"] == ["patient_id"]
-    assert manifest["primary_metric"] == "pr_auc"
-    assert "roc_auc" in manifest["secondary_metrics"]
-    assert manifest["selected_model"] == "logistic_regression"
-    assert manifest["calibration_error_analysis"]["calibration"]["brier_score"] == 0.12
-    assert manifest["reproducibility"]["random_seed"] == 42
     assert by_type["evidence"].content.startswith(b"{\n")
 
 
@@ -214,16 +215,19 @@ def _delivery_setup(
     experiment: ExperimentRecord | None = None,
     sha256: str | None = None,
     evidence_hash: str | None = None,
+    report_type: str = "evidence",
+    filename: str = "zubepredict-evidence-envelope.json",
+    content_type: str = "application/json",
 ) -> tuple[ReportRecord, FakeBucket, FakeAudit]:
     report = ReportRecord(
         id=uuid4(),
         owner_id=OWNER,
         experiment_id=EXPERIMENT,
-        report_type="evidence",
+        report_type=report_type,
         report_version=1,
-        storage_path=f"{OWNER}/{EXPERIMENT}/reports/v1/zubepredict-evidence-envelope.json",
-        filename="zubepredict-evidence-envelope.json",
-        content_type="application/json",
+        storage_path=f"{OWNER}/{EXPERIMENT}/reports/v1/{filename}",
+        filename=filename,
+        content_type=content_type,
         size_bytes=len(content),
         sha256=sha256 or hashlib.sha256(content).hexdigest(),
         evidence_hash=evidence_hash or _evidence().evidence_hash,
@@ -250,6 +254,56 @@ def _delivery_setup(
         ),
     )
     return report, bucket, audit
+
+
+def test_authenticated_content_delivery_renders_verified_html_with_safe_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = b"<!doctype html><html><body><h1>Verified report</h1></body></html>"
+    report, _bucket, audit = _delivery_setup(
+        monkeypatch,
+        content=content,
+        report_type="html",
+        filename="zubepredict-evidence-report.html",
+        content_type="text/html; charset=utf-8",
+    )
+
+    response = hermes_routes.get_report_content_response(
+        EXPERIMENT,
+        "html",
+        TrustedHermesPrincipal(OWNER, "web", channel="web"),
+    )
+
+    assert response.body == content
+    assert response.media_type == "text/html; charset=utf-8"
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["content-disposition"] == (
+        'inline; filename="zubepredict-evidence-report.html"'
+    )
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "private, no-store, max-age=0"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert response.headers["x-zubepredict-artifact-sha256"] == report.sha256
+    assert audit.records[0]["metadata"]["delivery"] == "authenticated_content"
+
+
+def test_authenticated_content_delivery_rejects_mismatched_media_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _delivery_setup(
+        monkeypatch,
+        content=b"not html",
+        report_type="html",
+        filename="zubepredict-evidence-report.html",
+        content_type="application/octet-stream",
+    )
+    with pytest.raises(HTTPException) as mismatch:
+        hermes_routes.get_report_content_response(
+            EXPERIMENT,
+            "html",
+            TrustedHermesPrincipal(OWNER, "web", channel="web"),
+        )
+    assert mismatch.value.status_code == 409
 
 
 def test_web_telegram_and_api_receive_the_same_artifact_identity(

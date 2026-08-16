@@ -41,6 +41,9 @@ class DatasetRepository(Protocol):
         retention_status: str = "active",
         retention_expires_at: datetime | None = None,
         source_channel: str = "api",
+        privacy_attested_at: datetime | None = None,
+        deidentified_confirmed: bool = False,
+        consent_scope: str | None = None,
     ) -> DatasetRecord: ...
 
     def get(self, dataset_id: UUID) -> DatasetRecord | None: ...
@@ -131,6 +134,7 @@ class ReportWriterRepository(ReportRepository, Protocol):
         sha256: str | None = None,
         evidence_hash: str | None = None,
         integrity_metadata: dict[str, Any] | None = None,
+        retention_expires_at: datetime | None = None,
     ) -> ReportRecord: ...
 
 

@@ -17,3 +17,7 @@ RUN pip install --no-cache-dir ".[ml]"
 
 # Copy application code  
 COPY . .
+
+RUN addgroup --system zubepredict && adduser --system --ingroup zubepredict zubepredict \
+    && chown -R zubepredict:zubepredict /workspace
+USER zubepredict

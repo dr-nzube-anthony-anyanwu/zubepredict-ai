@@ -22,6 +22,11 @@ mlruns/
 *.onnx
 *.log
 .hermes-state/
+.hermes/
+hermes-home/
+**/sessions.db
+**/conversation*.db
+**/gateway-state/
 integrations/hermes/runtime/
 integrations/hermes/config/*.local.yaml
 integrations/hermes/config/*.secret.*
