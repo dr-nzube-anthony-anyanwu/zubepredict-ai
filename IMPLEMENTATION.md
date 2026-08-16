@@ -82,6 +82,10 @@ Latest complete regression evidence:
   table RLS-enabled and both atomic quota triggers present.
 - `npm audit` and the isolated Python `pip-audit` both reported **0 known vulnerabilities**. The
   workspace secret/state scan passed. Trivy was unavailable and remains mandatory before deployment.
+- The post-Stage 17 product-experience refinement passed `npx tsc --noEmit` and the Next.js 15.5.23
+  production build. Browser verification covered the complete desktop and 390-pixel mobile homepage,
+  found meaningful content with no error overlay/page errors, and confirmed that all five protected
+  dashboard routes redirect unauthenticated visitors to the sign-in boundary.
 - Official Hermes discovery loaded 13 native ZubePredict tools before Stage 14. After the
   Stage 14 reinstall, Hermes discovery verified the enabled v0.2.0 plugin with 16 tools,
   the workflow skill, pre-LLM hook and exact report-output transform hook. The focused
@@ -901,6 +905,57 @@ Stage 2–17 disposable PostgreSQL chain passed; npm and Python advisory audits 
 vulnerabilities; and the local secret/state scan passed. Trivy was not installed. The non-root
 Docker rebuild hung beyond the timeout and was cancelled cleanly, so image build/scan remains a
 manual production-gate item rather than a claimed pass.
+
+## Post-Stage 17 product story and workspace navigation refinement
+
+The owner supplied a proposed marketing narrative and requested a premium, non-technical public
+experience plus dedicated authenticated pages. This refinement was completed on 2026-08-16 without
+starting Stage 18 and without changing FastAPI, Supabase, LangGraph, worker or Hermes contracts.
+
+Implemented:
+
+- Reframed the public story around “From raw data to defensible decisions” and “Your data has
+  answers. ZubePredict builds the evidence.” The copy explains the organisational problem,
+  investigation checkpoints, model tournament, evidence outputs and cross-channel continuity.
+- Preserved responsible positioning: predictive/operational intelligence and research support,
+  never autonomous diagnosis, clinician replacement, guaranteed decisions or unexplained metrics.
+- Generated and added `apps/web/public/images/evidence-journey-hero.png`, a text-free product visual
+  showing anonymous tabular rows passing through validation into structured evidence. Next.js serves
+  it with `next/image`, responsive sizing, intrinsic dimensions and priority loading.
+- Rebuilt the homepage as a responsive editorial product journey with trust markers, scientific
+  workflow cards, assistant-versus-system comparison, eye-care/operational use cases, artifact cards,
+  responsible-use boundary, channel continuity and a clear workspace call to action.
+- Split the authenticated workspace into `/dashboard`, `/dashboard/projects`,
+  `/dashboard/experiments`, `/dashboard/evidence` and `/dashboard/connections`. Active navigation
+  follows the pathname, while every route uses the same server-fetched overview/account-link data
+  and the existing authenticated mutation functions.
+- Kept project creation, private upload, Constitution proposal/confirmation, durable job start,
+  clarification, cancellation, evidence retrieval, report delivery, Telegram linking and revocation
+  behavior unchanged. Each page adds restrained plain-language context explaining why its operation
+  matters to a non-technical owner.
+- Made displayed dashboard timestamps deterministic in UTC to avoid server/client timezone
+  hydration differences.
+
+Verification: `npx tsc --noEmit` passed. Next.js 15.5.23 production build passed and emitted all five
+dashboard routes as protected dynamic pages. Automated browser review passed at desktop and 390x844
+mobile viewports, showed the complete product story through the footer, found no Next.js error overlay
+or page errors, and confirmed every unauthenticated dashboard URL redirects to `/login`. The temporary
+browser and port-3040 dev processes were stopped after verification. Authenticated real-data visual
+review remains an owner smoke check because credentials are never shared with Codex.
+
+### Plain-language product handbook and safe demonstration data
+
+On 2026-08-16, a root-level `PRODUCT-GUIDE.md` was added as the permanent owner handbook. It explains
+the product with non-technical analogies, the complete governed experiment journey, every dashboard
+page, web/Telegram continuity, authoritative artifacts, security boundaries, local startup, a
+click-by-click smoke test, a five-minute demonstration script, honest marketing language, FAQs and a
+glossary. It explicitly preserves the decision-support/research boundary and does not claim public
+deployment or clinical approval.
+
+The repository now also includes `samples/eye_clinic_followup_demo.csv`: 60 wholly fictional rows
+with no names, patient IDs or real patient information. The handbook uses this safe sample for its
+first project, upload, Constitution, durable experiment, evidence and cross-channel walkthrough so a
+product demonstration does not require real patient data.
 
 ## Configuration and secrets boundary
 

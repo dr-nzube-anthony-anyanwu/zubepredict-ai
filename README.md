@@ -135,6 +135,12 @@ monitoring, privacy controls, security review, and accountable human oversight.
 ### Unified authenticated dashboard
 
 - Supabase email/password Auth with server-refreshed cookies and protected dashboard routes.
+- A premium public product story explains the journey from underused tabular data to governed,
+  reproducible evidence without presenting ZubePredict as autonomous diagnosis or guaranteed advice.
+- A project-owned hero illustration and responsive editorial sections explain the scientific journey,
+  eye-care/operational use cases, channel continuity, limitations and authoritative artifact bundle.
+- Dedicated authenticated routes separate Overview, Projects, Experiments, Evidence and Connections
+  while reusing the same FastAPI services and client mutation boundary.
 - Responsive project, private dataset upload, Auto/Expert Constitution, progress, leaderboard,
   plain-language verified evidence, styled Evidence Card and temporary report views.
 - One-time eight-digit Telegram linking codes are HMAC-hashed, short-lived, single-use,
@@ -644,6 +650,8 @@ Render configuration is a restricted demo starting point. No public deployment w
 
 ## Additional documentation
 
+- `PRODUCT-GUIDE.md` — plain-language owner handbook, feature walkthrough, demonstration script and
+  responsible marketing guide.
 - `docs/01-BEGINNER-SETUP-WINDOWS.md`
 - `docs/02-ACCOUNTS-AND-KEYS.md`
 - `docs/03-BUILD-ROADMAP.md`

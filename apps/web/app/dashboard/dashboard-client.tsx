@@ -1,11 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { createClient } from "../../lib/supabase/client";
 import type { DashboardOverview, Experiment, TelegramLink } from "../../lib/types";
 
 type Mode = "auto" | "expert";
 type Constitution = Record<string, unknown> & { constitution_id: string; version: number };
+export type DashboardView = "overview" | "projects" | "experiments" | "evidence" | "connections";
+
+const pageCopy: Record<DashboardView, { kicker: string; title: string; description: string }> = {
+  overview: { kicker: "YOUR DECISION WORKSPACE", title: "Turn questions into evidence.", description: "See every owned project, durable experiment and verified result—whether the work began here or in Telegram." },
+  projects: { kicker: "PROJECTS & PRIVATE DATA", title: "Give every question a safe home.", description: "Organise related datasets and objectives together. Uploads are validated, fingerprinted and kept owner-scoped before experiments can use them." },
+  experiments: { kicker: "GOVERNED MODEL DEVELOPMENT", title: "Design the experiment before training.", description: "Choose the data, state the objective and review the proposed task, metric, exclusions and resource budget before the worker begins." },
+  evidence: { kicker: "VERIFIED RESULTS & ARTIFACTS", title: "Understand what won—and where it may fail.", description: "Follow progress, answer exact clarification questions and open reports generated from the same immutable evidence envelope." },
+  connections: { kicker: "SECURE CROSS-CHANNEL CONTINUITY", title: "One account. One body of work.", description: "Link your private Telegram identity to continue the same owned projects and experiments without creating a separate data system." },
+};
 
 function apiBase() {
   return (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8040/api/v1").replace(/\/$/, "");
@@ -17,15 +27,17 @@ function readable(value: string) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(value));
 }
 
 export default function DashboardClient({
   initialOverview,
   initialTelegramLink,
+  view,
 }: {
   initialOverview: DashboardOverview;
   initialTelegramLink: TelegramLink;
+  view: DashboardView;
 }) {
   const [overview, setOverview] = useState(initialOverview);
   const [telegramLink, setTelegramLink] = useState(initialTelegramLink);
@@ -286,19 +298,26 @@ export default function DashboardClient({
 
   return (
     <main className="dashboard-main">
-      <header className="topbar" id="overview"><div><p className="kicker">UNIFIED WORKSPACE</p><h1>Good to see you.</h1><p>Projects started on Telegram and the web meet here.</p></div><span className="live-pill"><i /> System connected</span></header>
+      <header className="topbar"><div><p className="kicker">{pageCopy[view].kicker}</p><h1>{pageCopy[view].title}</h1><p>{pageCopy[view].description}</p></div><span className="live-pill"><i /> Authoritative workspace</span></header>
       {message && <div className="notice info" role="status">{message}<button onClick={() => setMessage("")} aria-label="Dismiss">×</button></div>}
 
-      <section className="metric-grid" aria-label="Workspace summary">
+      {view === "overview" && <><section className="metric-grid" aria-label="Workspace summary">
         <Metric label="Projects" value={overview.summary.project_count} note="owned workspaces" />
         <Metric label="Datasets" value={overview.summary.dataset_count} note="privately stored" />
         <Metric label="Experiments" value={overview.summary.experiment_count} note={`${overview.summary.statuses.running || 0} currently running`} />
         <Metric label="Completed" value={overview.summary.statuses.completed || 0} note="verified evidence ready" accent />
       </section>
+      <section className="workspace-story-grid" aria-label="Workspace actions">
+        <Link href="/dashboard/projects"><span>01</span><div><strong>Bring the data</strong><p>Create an owned project and add a validated, de-identified dataset.</p></div><b aria-hidden="true">→</b></Link>
+        <Link href="/dashboard/experiments"><span>02</span><div><strong>Define the question</strong><p>Review the task and safety assumptions before any model is trained.</p></div><b aria-hidden="true">→</b></Link>
+        <Link href="/dashboard/evidence"><span>03</span><div><strong>Inspect the evidence</strong><p>Follow durable progress and open verified, plain-language reports.</p></div><b aria-hidden="true">→</b></Link>
+      </section></>}
 
-      <section className="panel-grid" id="projects">
+      {(view === "projects" || view === "connections") && <section className={`panel-grid route-${view}`}>
         <article className="panel wide">
-          <div className="panel-head"><div><p className="kicker">PROJECTS & DATA</p><h2>Build your next experiment</h2></div><span className="mode-note">Shared with Telegram</span></div>
+          <div className="panel-head"><div><p className="kicker">OWNED WORKSPACES</p><h2>Projects keep the question, data and experiments together</h2><p className="panel-intro">A source badge records where work began. It never changes who owns the project or who may use its data.</p></div><span className="mode-note">Shared with Telegram</span></div>
+          {overview.projects.length > 0 && <div className="project-card-grid">{overview.projects.map((item) => <button type="button" className={item.id === selectedProject ? "selected" : ""} key={item.id} onClick={() => { setSelectedProject(item.id); setSelectedDataset(item.datasets[0]?.id || ""); }}><span>{readable(item.source_channel)}</span><strong>{item.name}</strong><p>{item.description || "A governed workspace for related data and experiments."}</p><small>{item.datasets.length} dataset{item.datasets.length === 1 ? "" : "s"} · {item.experiment_ids.length} experiment{item.experiment_ids.length === 1 ? "" : "s"}</small></button>)}</div>}
+          <div className="section-divider"><span>MANAGE SELECTED PROJECT</span></div>
           <div className="builder-grid">
             <div className="builder-block"><span className="step">1</span><h3>Select a project</h3><select value={selectedProject} onChange={(event) => { setSelectedProject(event.target.value); setSelectedDataset(overview.projects.find((item) => item.id === event.target.value)?.datasets[0]?.id || ""); }}><option value="">Choose project</option>{overview.projects.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.source_channel}</option>)}</select>
               <details><summary>+ Create a new project</summary><form action={createProject} className="compact-form"><input name="name" placeholder="Project name" required maxLength={120} /><textarea name="description" placeholder="Short description (optional)" maxLength={1000} /><button disabled={busy === "project"} className="button secondary">{busy === "project" ? "Creating…" : "Create project"}</button></form></details>
@@ -310,19 +329,21 @@ export default function DashboardClient({
           {dataset && <div className="dataset-strip"><strong>{dataset.filename}</strong><span>{dataset.row_count ?? "—"} rows</span><span>{dataset.column_count ?? dataset.schema_columns.length} columns</span><span>SHA-256 verified</span><b>{readable(dataset.source_channel)}</b></div>}
         </article>
 
-        <article className="panel" id="connections">
-          <div className="panel-head"><div><p className="kicker">CONNECTION</p><h2>Telegram</h2></div><span className={`status-dot ${telegramLink.linked ? "good" : ""}`}>{telegramLink.linked ? "Linked" : "Not linked"}</span></div>
-          <p className="muted">Continue the same projects securely from a private chat.</p>
+        <article className="panel connection-panel">
+          <div className="panel-head"><div><p className="kicker">TRUSTED TELEGRAM IDENTITY</p><h2>Continue without starting over</h2></div><span className={`status-dot ${telegramLink.linked ? "good" : ""}`}>{telegramLink.linked ? "Linked" : "Not linked"}</span></div>
+          <p className="muted">A short-lived, single-use code proves that your private Telegram identity belongs to this authenticated workspace. Telegram receives no browser secrets.</p>
+          <div className="connection-benefits"><span><b>Same owner</b> Projects and experiments remain under this account.</span><span><b>Same state</b> A worker continues if either channel disconnects.</span><span><b>Same evidence</b> Metrics and reports come from the backend record.</span></div>
           {telegramLink.linked ? <><div className="connection-card"><span>✓</span><div><strong>Telegram {telegramLink.telegram_user}</strong><small>Linked {formatDate(telegramLink.linked_at)}</small></div></div><button className="button danger" onClick={revokeLink} disabled={busy === "revoke"}>Revoke link</button></> : <>
             {linkCode && <div className="link-code"><small>ONE-TIME CODE</small><strong>{linkCode.code.slice(0,4)} {linkCode.code.slice(4)}</strong><span>Expires {formatDate(linkCode.expires)}</span><p>Private bot chat: <b>/zlink {linkCode.code}</b></p></div>}
             <button className="button primary" onClick={generateLinkCode} disabled={busy === "link"}>{linkCode ? "Generate a new code" : "Connect Telegram"}</button>
             {linkCode && <button className="button ghost" onClick={checkLink} disabled={busy === "link-check"}>I sent the code — check link</button>}
           </>}
         </article>
-      </section>
+      </section>}
 
-      <section className="panel experiment-builder" id="experiments">
-        <div className="panel-head"><div><p className="kicker">NEW EXPERIMENT</p><h2>Configure with guardrails</h2></div><div className="mode-switch" aria-label="Experiment mode"><button className={mode === "auto" ? "active" : ""} onClick={() => setMode("auto")}>Auto mode</button><button className={mode === "expert" ? "active" : ""} onClick={() => setMode("expert")}>Expert mode</button></div></div>
+      {view === "experiments" && <section className="panel experiment-builder">
+        <div className="panel-head"><div><p className="kicker">EXPERIMENT CONSTITUTION</p><h2>Make the important decisions visible</h2><p className="panel-intro">The Constitution is the agreement between your question and the scientific workflow. Nothing is queued until you review its exact version.</p></div><div className="mode-switch" aria-label="Experiment mode"><button className={mode === "auto" ? "active" : ""} onClick={() => setMode("auto")}>Guided</button><button className={mode === "expert" ? "active" : ""} onClick={() => setMode("expert")}>Expert</button></div></div>
+        <div className="experiment-context"><label>Project<select value={selectedProject} onChange={(event) => { setSelectedProject(event.target.value); setSelectedDataset(overview.projects.find((item) => item.id === event.target.value)?.datasets[0]?.id || ""); }}><option value="">Choose project</option>{overview.projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Validated dataset<select value={selectedDataset} onChange={(event) => setSelectedDataset(event.target.value)} disabled={!project}><option value="">Choose dataset</option>{project?.datasets.map((item) => <option key={item.id} value={item.id}>{item.filename} · {item.row_count ?? "?"} rows</option>)}</select></label></div>
         <form action={proposeConstitution} className="experiment-form">
           <label>Objective<textarea name="objective" required minLength={3} maxLength={2000} placeholder="For example: predict which synthetic records have a positive target." /></label>
           <label>Target column<input name="target" list="columns" placeholder={mode === "auto" ? "Optional — let ZubePredict assess" : "Choose a validated column"} required={mode === "expert"} /><datalist id="columns">{dataset?.schema_columns.map((column) => <option value={column} key={column} />)}</datalist></label>
@@ -331,18 +352,19 @@ export default function DashboardClient({
           <button className="button primary" disabled={busy === "constitution" || !selectedDataset}>{busy === "constitution" ? "Assessing…" : "Create Experiment Constitution"}</button>
         </form>
         {constitution && <div className="constitution"><div><p className="kicker">REVIEW BEFORE STARTING</p><h3>Experiment Constitution v{constitution.version}</h3></div><dl>{["task","target","prediction_point","validation_method","primary_metric","exclusions","resource_budget","intended_use_warning"].map((key) => <div key={key}><dt>{readable(key)}</dt><dd>{typeof constitution[key] === "object" ? JSON.stringify(constitution[key]) : String(constitution[key] ?? "Not specified")}</dd></div>)}</dl><label className="confirm-line"><input type="checkbox" id="constitution-confirm" /> I reviewed this exact Constitution version.</label><button className="button primary" onClick={() => { const box = document.querySelector<HTMLInputElement>("#constitution-confirm"); if (!box?.checked) return setMessage("Tick the confirmation box after reviewing the Constitution."); confirmAndStart(); }} disabled={busy === "start"}>Confirm and queue experiment</button></div>}
-      </section>
+      </section>}
 
-      <section className="panel" id="evidence">
-        <div className="panel-head"><div><p className="kicker">EXPERIMENT HISTORY</p><h2>Progress and verified evidence</h2></div><button className="button ghost" onClick={() => perform("refresh", refresh)} disabled={busy === "refresh"}>Refresh status</button></div>
-        {recentExperiments.length ? <div className="experiment-list">{recentExperiments.map((item) => <ExperimentRow key={item.id} experiment={item} busy={busy} onEvidence={() => loadEvidence(item)} onReport={(reportType) => downloadReport(item, reportType)} onCancel={() => cancelExperiment(item)} />)}</div> : <div className="empty-inline"><strong>No experiments yet</strong><span>Create a Constitution above or begin through Telegram.</span></div>}
+      {(view === "overview" || view === "evidence") && <section className="panel evidence-workspace">
+        <div className="panel-head"><div><p className="kicker">{view === "overview" ? "RECENT ACTIVITY" : "EXPERIMENT HISTORY"}</p><h2>{view === "overview" ? "Your work continues across sessions" : "Progress and verified evidence"}</h2><p className="panel-intro">{view === "overview" ? "Closing this page never restarts an experiment. The backend remains authoritative." : "A completed badge appears only after verified evidence and report metadata have been stored."}</p></div><button className="button ghost" onClick={() => perform("refresh", refresh)} disabled={busy === "refresh"}>Refresh status</button></div>
+        {recentExperiments.length ? <div className="experiment-list">{(view === "overview" ? recentExperiments.slice(0, 3) : recentExperiments).map((item) => <ExperimentRow key={item.id} experiment={item} busy={busy} onEvidence={() => loadEvidence(item)} onReport={(reportType) => downloadReport(item, reportType)} onCancel={() => cancelExperiment(item)} />)}</div> : <div className="empty-inline"><strong>No experiments yet</strong><span>Create a Constitution or begin through your securely linked Telegram account.</span></div>}
         {recentExperiments.filter((item) => item.pending_clarification).map((item) => {
           const data = item.pending_clarification?.data as Record<string, unknown> | undefined;
           const taskDecision = data?.kind === "task_decision";
           return <form action={(formData) => answerClarification(item, formData)} className="constitution" key={`clarification-${item.id}`}><p className="kicker">CLARIFICATION REQUIRED</p><h3>{String(data?.question || "Please clarify this experiment before it continues.")}</h3><label>Answer<textarea name="response" required maxLength={2000} /></label>{taskDecision && <div className="expert-fields" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}><label>Confirmed task<select name="task_type" required><option value="">Choose task</option><option value="binary_classification">Binary classification</option><option value="multiclass_classification">Multiclass classification</option><option value="regression">Regression</option><option value="clustering">Clustering</option><option value="anomaly_detection">Anomaly detection</option><option value="time_series_forecasting">Time-series forecasting</option></select></label><label>Target column<input name="target_column" list="columns" /></label><label className="confirm-line"><input name="confirmed_by_user" type="checkbox" required /> I explicitly confirm this task decision.</label></div>}<button className="button primary" disabled={busy === `clarify-${item.id}`}>Answer and resume</button></form>;
         })}
         {evidence && <EvidenceView payload={evidence} onClose={() => setEvidence(null)} />}
-      </section>
+        {view === "overview" && <Link className="text-link panel-link" href="/dashboard/evidence">View all experiments and evidence →</Link>}
+      </section>}
     </main>
   );
 }

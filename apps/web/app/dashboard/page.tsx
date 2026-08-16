@@ -1,13 +1,9 @@
-import { apiFetch } from "../../lib/api";
-import type { DashboardOverview, TelegramLink } from "../../lib/types";
-import DashboardClient from "./dashboard-client";
+import type { Metadata } from "next";
+import DashboardRoute from "./dashboard-page";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Overview", description: "Your owned ZubePredict projects, experiments and evidence at a glance." };
 
-export default async function DashboardPage() {
-  const [overview, telegramLink] = await Promise.all([
-    apiFetch<DashboardOverview>("/dashboard/overview"),
-    apiFetch<TelegramLink>("/account-links/telegram"),
-  ]);
-  return <DashboardClient initialOverview={overview} initialTelegramLink={telegramLink} />;
+export default function OverviewPage() {
+  return <DashboardRoute view="overview" />;
 }
